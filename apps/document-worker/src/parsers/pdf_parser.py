@@ -28,7 +28,8 @@ def _tables_to_markdown(page) -> list[str]:
             for row in rows[1:]:
                 lines.append("| " + " | ".join(str(c or "") for c in row) + " |")
             blocks.append("\n".join(lines))
-    except Exception as exc:  # pragma: no cover - table extraction is best effort
+    except Exception as exc:  # noqa: BLE001 - table extraction is best effort
+        # pragma: no cover - table extraction may fail on odd layouts
         logger.debug("table extraction skipped: %s", exc)
     return blocks
 
