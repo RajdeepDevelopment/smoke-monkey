@@ -16,10 +16,27 @@ citations.
 
 ---
 
-**Tags:** `LLM` `RAG` · `Super Memory` · `Dynamic Visual` · `Chat` · `Next.js` ·
-`NestJS` · `FastAPI` · `PostgreSQL` · `pgvector` · `Redis` · `NATS JetStream` ·
-`MinIO` · `Ollama` · `OpenRouter` · `NVIDIA NIM` · `Hybrid Retrieval` ·
-`RRF Fusion` · `HyDE` · `SSE` · `Agentic Router`
+![LLM](https://img.shields.io/badge/LLM-24292f?style=for-the-badge)
+![RAG](https://img.shields.io/badge/RAG-24292f?style=for-the-badge)
+![Super Memory](https://img.shields.io/badge/Super%20Memory-24292f?style=for-the-badge)
+![Dynamic Visual](https://img.shields.io/badge/Dynamic%20Visual-24292f?style=for-the-badge)
+![Chat](https://img.shields.io/badge/Chat-24292f?style=for-the-badge)
+![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
+![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![pgvector](https://img.shields.io/badge/pgvector-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![NATS JetStream](https://img.shields.io/badge/NATS%20JetStream-27AAE1?style=for-the-badge&logo=nats&logoColor=white)
+![MinIO](https://img.shields.io/badge/MinIO-C72E49?style=for-the-badge&logo=minio&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logo=ollama&logoColor=white)
+![OpenRouter](https://img.shields.io/badge/OpenRouter-24292f?style=for-the-badge)
+![NVIDIA NIM](https://img.shields.io/badge/NVIDIA%20NIM-76B900?style=for-the-badge&logo=nvidia&logoColor=white)
+![Hybrid Retrieval](https://img.shields.io/badge/Hybrid%20Retrieval-24292f?style=for-the-badge)
+![RRF Fusion](https://img.shields.io/badge/RRF%20Fusion-24292f?style=for-the-badge)
+![HyDE](https://img.shields.io/badge/HyDE-24292f?style=for-the-badge)
+![SSE](https://img.shields.io/badge/SSE-24292f?style=for-the-badge)
+![Agentic Router](https://img.shields.io/badge/Agentic%20Router-24292f?style=for-the-badge)
 
 ![logo](assets/logo.png)
 
