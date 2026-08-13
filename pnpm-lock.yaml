@@ -113,6 +113,9 @@ importers:
       '@rag/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      highlight.js:
+        specifier: ^11.11.2
+        version: 11.11.2
       mermaid:
         specifier: ^11.16.1
         version: 11.16.1
