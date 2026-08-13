@@ -1,0 +1,99 @@
+{
+  "providers": {
+    "openrouter": { "label": "OpenRouter" },
+    "nvidia": { "label": "NVIDIA NIM" },
+    "ollama": { "label": "Local (Ollama)" },
+    "gemini": { "label": "Google Gemini" }
+  },
+  "presets": [
+    {
+      "role": "main",
+      "label": "Main chatbot",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Everyday Q&A over your documents"
+    },
+    {
+      "role": "reasoning",
+      "label": "Best reasoning",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Deep analysis and multi-step logic"
+    },
+    {
+      "role": "coding",
+      "label": "Coding / Agent",
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.2",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Strong at code and tool-calling"
+    },
+    {
+      "role": "flagship",
+      "label": "NVIDIA flagship",
+      "provider": "nvidia",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Largest Nemotron 3 for maximum quality"
+    },
+    {
+      "role": "efficient",
+      "label": "Quality + efficiency",
+      "provider": "nvidia",
+      "model": "nvidia/nemotron-3-super-120b-a12b",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Great balance of quality and cost"
+    },
+    {
+      "role": "fast",
+      "label": "Fast NVIDIA model",
+      "provider": "nvidia",
+      "model": "nvidia/nemotron-3-nano-30b-a3b",
+      "rating": 4,
+      "isFree": false,
+      "notes": "Low latency, lightweight"
+    },
+    {
+      "role": "vision",
+      "label": "Vision / multimodal",
+      "provider": "nvidia",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "rating": 4,
+      "isFree": false,
+      "notes": "Image + text understanding"
+    },
+    {
+      "role": "embed",
+      "label": "RAG embedding",
+      "provider": "openrouter",
+      "model": "nvidia/nemotron-3-embed-1b",
+      "dims": 2048,
+      "rating": 5,
+      "notes": "2048-dim, 32768 context — the active index model"
+    },
+    {
+      "role": "embed-multi",
+      "label": "Multilingual embedding",
+      "provider": "nvidia",
+      "model": "nvidia/llama-nemotron-embed-1b-v2",
+      "dims": 1024,
+      "rating": 5,
+      "notes": "Strong multilingual retrieval (different dims — needs reindex)"
+    },
+    {
+      "role": "rerank",
+      "label": "RAG reranking",
+      "provider": "openrouter",
+      "model": "nvidia/llama-nemotron-rerank-vl-1b-v2",
+      "rating": 5,
+      "notes": "Re-scores retrieval results for precision"
+    }
+  ]
+}

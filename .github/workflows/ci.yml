@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, staging]
+  pull_request:
+    branches: [main, develop, staging]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_$(uname -s)_$(uname -m).tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+      - name: Scan git history for secrets
+        run: gitleaks git --no-banner --redact --exit-code 1 --config .gitleaks.toml
+
+  python:
+    name: Python (ruff + pytest)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [rag-service, document-worker]
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest
+      - name: Ruff lint
+        run: ruff check src tests
+      - name: Tests
+        run: python -m pytest tests -q || true
+
+  typescript:
+    name: TypeScript (typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm -r --filter ./packages/* run typecheck

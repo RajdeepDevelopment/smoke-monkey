@@ -1,0 +1,6 @@
+packages:
+  - "apps/api-gateway"
+  - "apps/web"
+  - "packages/contracts"
+  - "packages/config"
+  - "packages/types"

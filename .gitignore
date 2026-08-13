@@ -1,0 +1,75 @@
+# ── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+**/.venv/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.uv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.python-version
+uv.lock
+
+# ── Builds / artifacts ───────────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+*.egg-info/
+*.so
+*.dylib
+*.dll
+
+# ── Env & secrets — NEVER commit these ──────────────────────────────────────
+.env
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.p12
+*.key
+*.crt
+!**/certs/self-signed-*
+id_rsa
+id_ed25519
+
+# ── Runtime data ─────────────────────────────────────────────────────────────
+data/
+*.log
+logs/
+nohup.out
+*.pid
+*.seed
+*.pid.lock
+
+# ── Editor / OS ─────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.npmrc
+.yarnrc
+
+# ── Terraform / IaC state ───────────────────────────────────────────────────
+infrastructure/terraform/.terraform/
+infrastructure/terraform/*.tfstate*
+infrastructure/terraform/*.tfvars
+infrastructure/terraform/crash.log
+
+# ── Docker / Compose overrides ──────────────────────────────────────────────
+docker-compose.override.yml
+docker-compose.prod.yml.local

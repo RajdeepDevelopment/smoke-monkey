@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-bg text-ink-primary antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-600 rounded-full;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-surface-600 bg-surface-800 px-4 py-2 text-sm font-medium text-ink-secondary transition-colors hover:bg-surface-700 hover:text-ink-primary;
+  }
+  .input {
+    @apply w-full rounded-lg border border-surface-600 bg-surface-900 px-3 py-2 text-sm text-ink-primary placeholder:text-ink-muted focus:border-primary focus:outline-none;
+  }
+  .card {
+    @apply rounded-card border border-surface-600 bg-surface-900/60 p-4;
+  }
+  .md-body {
+    @apply text-sm leading-relaxed text-ink-primary;
+  }
+  .md-body > *:first-child {
+    @apply mt-0;
+  }
+  .md-body > *:last-child {
+    @apply mb-0;
+  }
+  .md-body p {
+    @apply my-2;
+  }
+  .md-body h1,
+  .md-body h2,
+  .md-body h3,
+  .md-body h4 {
+    @apply my-3 font-semibold text-white;
+  }
+  .md-body ul {
+    @apply my-2 list-disc pl-5;
+  }
+  .md-body ol {
+    @apply my-2 list-decimal pl-5;
+  }
+  .md-body li {
+    @apply my-0.5;
+  }
+  .md-body a {
+    @apply text-accent underline underline-offset-2 hover:text-accent-hover;
+  }
+  .md-body code {
+    @apply rounded bg-surface-700 px-1 py-0.5 text-[0.85em] text-cyan-200;
+  }
+  .md-body pre {
+    @apply my-3 overflow-x-auto rounded-lg border border-surface-600 bg-surface-950 p-3;
+  }
+  .md-body pre code {
+    @apply bg-transparent p-0 text-slate-200;
+  }
+  .md-body blockquote {
+    @apply my-2 border-l-2 border-surface-600 pl-3 text-ink-secondary;
+  }
+  .md-body table {
+    @apply my-3 w-full border-collapse text-sm;
+  }
+  .md-body th {
+    @apply border border-surface-600 bg-surface-800 px-2 py-1 text-left font-medium;
+  }
+  .md-body td {
+    @apply border border-surface-600 px-2 py-1;
+  }
+  .md-body hr {
+    @apply my-4 border-surface-600;
+  }
+}

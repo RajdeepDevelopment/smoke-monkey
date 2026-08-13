@@ -1,0 +1,269 @@
+name: smoke-monkey
+
+x-app-env: &app-env
+  RAG_ENV: ${RAG_ENV:-development}
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_USER: ${POSTGRES_USER:-rag}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_secret}
+  POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  NATS_URL: ${NATS_URL:-nats://nats:4222}
+  NATS_JETSTREAM: ${NATS_JETSTREAM:-true}
+  NEO4J_ENABLED: ${NEO4J_ENABLED:-false}
+  NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+  NEO4J_USER: ${NEO4J_USER:-neo4j}
+  NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4j_password}
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
+  MINIO_PORT: ${MINIO_PORT:-9000}
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-ragminio}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-ragminio_secret}
+  MINIO_BUCKET: ${MINIO_BUCKET:-documents}
+  MINIO_SECURE: ${MINIO_SECURE:-false}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+  OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+  OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+  OLLAMA_EMBED_DIMS: ${OLLAMA_EMBED_DIMS:-768}
+  LLM_PROVIDER: ${LLM_PROVIDER:-nvidia}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+  GEMINI_MODELS: ${GEMINI_MODELS:-gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  OPENROUTER_CHAT_MODEL: ${OPENROUTER_CHAT_MODEL:-nvidia/nemotron-3-nano-30b-a3b:free}
+  OPENROUTER_CHAT_MODELS: ${OPENROUTER_CHAT_MODELS:-nvidia/nemotron-3-nano-30b-a3b:free,deepseek/deepseek-v4-flash}
+  NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+  NVIDIA_CHAT_MODEL: ${NVIDIA_CHAT_MODEL:-nvidia/nemotron-3-nano-30b-a3b}
+  NVIDIA_CHAT_MODELS: ${NVIDIA_CHAT_MODELS:-nvidia/nemotron-3-nano-30b-a3b,nvidia/nemotron-3-super-120b-a12b,nvidia/nemotron-3-ultra-550b-a55b}
+  NVIDIA_EMBED_MODEL: ${NVIDIA_EMBED_MODEL:-nvidia/nemotron-3-embed-1b}
+  NVIDIA_EMBED_DIMS: ${NVIDIA_EMBED_DIMS:-2048}
+  NVIDIA_RERANK_ENABLED: ${NVIDIA_RERANK_ENABLED:-false}
+  NVIDIA_RERANK_MODEL: ${NVIDIA_RERANK_MODEL:-nvidia/llama-nemotron-rerank-1b-v2}
+  EMBED_PROVIDER: ${EMBED_PROVIDER:-openrouter}
+  OPENROUTER_EMBED_MODEL: ${OPENROUTER_EMBED_MODEL:-nvidia/nemotron-3-embed-1b:free}
+  OPENROUTER_EMBED_DIMS: ${OPENROUTER_EMBED_DIMS:-2048}
+  OPENROUTER_RERANK_ENABLED: ${OPENROUTER_RERANK_ENABLED:-true}
+  OPENROUTER_RERANK_MODEL: ${OPENROUTER_RERANK_MODEL:-nvidia/llama-nemotron-rerank-vl-1b-v2:free}
+  API_KEY_ENCRYPTION_SECRET: ${API_KEY_ENCRYPTION_SECRET:-change-me-32-bytes-random-hex-0123456789abcdef}
+  USER_API_KEY_CACHE_TTL: ${USER_API_KEY_CACHE_TTL:-86400}
+  JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+  HYDE_ENABLED: ${HYDE_ENABLED:-true}
+  MULTI_QUERY_ENABLED: ${MULTI_QUERY_ENABLED:-true}
+  RERANK_ENABLED: ${RERANK_ENABLED:-false}
+  CACHE_ENABLED: ${CACHE_ENABLED:-true}
+  QUERY_CACHE_TTL: ${QUERY_CACHE_TTL:-300}
+  OCR_ENABLED: ${OCR_ENABLED:-false}
+  TOP_K: ${TOP_K:-12}
+  CHUNK_SIZE: ${CHUNK_SIZE:-800}
+  CHUNK_OVERLAP: ${CHUNK_OVERLAP:-80}
+  ROUTER_ENABLED: ${ROUTER_ENABLED:-true}
+  ROUTER_CACHE_TTL: ${ROUTER_CACHE_TTL:-300}
+  MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
+  MEMORY_TOP_K: ${MEMORY_TOP_K:-5}
+  MEMORY_MIN_SCORE: ${MEMORY_MIN_SCORE:-0.12}
+  MEMORY_EXTRACT_ENABLED: ${MEMORY_EXTRACT_ENABLED:-true}
+  MEMORY_EXTRACT_MIN_IMPORTANCE: ${MEMORY_EXTRACT_MIN_IMPORTANCE:-0.5}
+  WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-false}
+  WEB_SEARCH_TOP_K: ${WEB_SEARCH_TOP_K:-5}
+  WEB_SEARCH_REQUIRE_OPTIN: ${WEB_SEARCH_REQUIRE_OPTIN:-true}
+  TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+  TAVILY_SEARCH_DEPTH: ${TAVILY_SEARCH_DEPTH:-basic}
+  GOOGLE_SEARCH_API_KEY: ${GOOGLE_SEARCH_API_KEY:-}
+  GOOGLE_SEARCH_CX: ${GOOGLE_SEARCH_CX:-}
+  BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+  BING_API_KEY: ${BING_API_KEY:-}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag} -d ${POSTGRES_DB:-ragdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222", "-sd", "/data"]
+    volumes:
+      - natsdata:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-ragminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-ragminio_secret}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-ragminio} ${MINIO_SECRET_KEY:-ragminio_secret};
+      mc mb --ignore-existing local/${MINIO_BUCKET:-documents};
+      echo 'bucket ready';
+      "
+
+  neo4j:
+    image: neo4j:5.26
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-neo4j_password}
+      NEO4J_dbms_memory_pagecache_size: 256m
+      NEO4J_dbms_memory_heap_initial__size: 256m
+      NEO4J_dbms_memory_heap_max__size: 512m
+      NEO4J_server_default__listen__address: 0.0.0.0
+    volumes:
+      - neo4jdata:/data
+    ports:
+      - "7687:7687"
+      - "7474:7474"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  ollama:
+    image: ollama/ollama:latest
+    entrypoint: ["/bin/sh", "/opt/ollama/entrypoint.sh"]
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      OLLAMA_KEEP_ALIVE: 5m
+    volumes:
+      - ollamadata:/root/.ollama
+      - ./infrastructure/docker/ollama/entrypoint.sh:/opt/ollama/entrypoint.sh:ro
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+
+  rag-service:
+    build:
+      context: ./apps/rag-service
+      dockerfile: Dockerfile
+    environment:
+      <<: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+
+  document-worker:
+    build:
+      context: ./apps/document-worker
+      dockerfile: Dockerfile
+    environment:
+      <<: *app-env
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    environment:
+      <<: *app-env
+      RAG_SERVICE_URL: http://rag-service:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rag-service:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api-gateway
+
+volumes:
+  pgdata:
+  redisdata:
+  natsdata:
+  miniodata:
+  ollamadata:
+  neo4jdata:
