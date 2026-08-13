@@ -20,7 +20,13 @@ jobs:
           fetch-depth: 0
       - name: Install gitleaks
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_$(uname -s)_$(uname -m).tar.gz \
+          GITLEAKS_VERSION=8.30.1
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$(uname -m)" in
+            x86_64) ARCH=x64 ;;
+            aarch64|arm64) ARCH=arm64 ;;
+          esac
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${OS}_${ARCH}.tar.gz" \
             | tar -xz -C /usr/local/bin gitleaks
       - name: Scan git history for secrets
         run: gitleaks git --no-banner --redact --exit-code 1 --config .gitleaks.toml
@@ -42,7 +48,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install ruff pytest
+          pip install ruff==0.16.3 pytest
       - name: Ruff lint
         run: ruff check src tests
       - name: Tests
