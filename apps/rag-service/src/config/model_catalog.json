@@ -3,7 +3,8 @@
     "openrouter": { "label": "OpenRouter" },
     "nvidia": { "label": "NVIDIA NIM" },
     "ollama": { "label": "Local (Ollama)" },
-    "gemini": { "label": "Google Gemini" }
+    "gemini": { "label": "Google Gemini" },
+    "omniroute": { "label": "OmniRoute (free, keyless)" }
   },
   "presets": [
     {

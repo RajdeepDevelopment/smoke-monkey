@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -161,6 +161,10 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
   const [savedKeys, setSavedKeys] = useState<UserKeyDto[]>([]);
   const [documents, setDocuments] = useState<DocumentDto[]>([]);
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+  const [omnirouteEnabled, setOmnirouteEnabled] = useState(false);
+  const [omnirouteModels, setOmnirouteModels] = useState<string[]>([]);
+
+  const lastSelectionRef = useRef<{ provider: string; model: string } | null>(null);
 
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [sourceCitations, setSourceCitations] = useState<CitationDto[]>([]);
@@ -175,6 +179,8 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
   const lastStreamFlushRef = useRef(0);
 
   const isFresh = messages.length === 0;
+
+  const omnirouteMode = provider === 'omniroute';
 
   const refreshKeys = useCallback(async () => {
     try {
@@ -213,6 +219,10 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
         setModel(preferred?.models[0] ?? '');
       })
       .catch(() => setProviders([]));
+    api
+      .fetchSettings()
+      .then((s) => setOmnirouteEnabled(s.omniroute.serverEnabled && s.omniroute.enabled))
+      .catch(() => setOmnirouteEnabled(false));
     void refreshKeys();
     if (user) {
       api
@@ -221,6 +231,43 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
         .catch(() => setDocuments([]));
     }
   }, [user, refreshKeys]);
+
+  // When the user enters free OmniRoute mode, pull the live keyless model list
+  // from the local gateway so the picker shows every free model, not just the
+  // curated subset from /models.
+  useEffect(() => {
+    if (provider !== 'omniroute') return;
+    api
+      .fetchOmniRouteModels()
+      .then((res) => setOmnirouteModels(res.models.map((m) => m.id)))
+      .catch(() => setOmnirouteModels([]));
+  }, [provider]);
+
+  const displayProviders = useMemo(() => {
+    if (!omnirouteMode || omnirouteModels.length === 0) return providers;
+    return providers.map((p) =>
+      p.id === 'omniroute'
+        ? { ...p, models: Array.from(new Set([...p.models, ...omnirouteModels])) }
+        : p,
+    );
+  }, [providers, omnirouteModels, omnirouteMode]);
+
+  const toggleOmniRoute = useCallback(() => {
+    if (provider === 'omniroute') {
+      const prev = lastSelectionRef.current;
+      if (prev) {
+        setProvider(prev.provider);
+        setModel(prev.model);
+      } else {
+        setProvider(defaultProvider);
+        setModel('');
+      }
+    } else {
+      lastSelectionRef.current = { provider, model };
+      setProvider('omniroute');
+      setModel('auto');
+    }
+  }, [provider, model, defaultProvider]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -311,7 +358,8 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
           prev[idx].content === (patch.content ?? prev[idx].content) &&
           prev[idx].citations === (patch.citations ?? prev[idx].citations) &&
           prev[idx].webSources === (patch.webSources ?? prev[idx].webSources) &&
-          prev[idx].pending === (patch.pending ?? prev[idx].pending)
+          prev[idx].pending === (patch.pending ?? prev[idx].pending) &&
+          prev[idx].notice === (patch.notice ?? prev[idx].notice)
         ) {
           return prev;
         }
@@ -366,6 +414,7 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
       let citations: CitationDto[] | null = null;
       let webSources: WebSourceDto[] | null = null;
       let confidence = 0;
+      let notice: string | null = null;
 
       try {
         for await (const event of api.streamChat(
@@ -404,6 +453,10 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
               citations = event.citations ?? citations;
               webSources = event.webSources ?? webSources;
               break;
+            case 'notice':
+              notice = event.message;
+              patchStreaming({ notice });
+              break;
             case 'error':
               throw new Error(event.message);
           }
@@ -423,6 +476,7 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
                   citations: citations ?? m.citations,
                   webSources: webSources ?? m.webSources,
                   confidence,
+                  notice: notice ?? m.notice,
                   pending: false,
                 }
               : m,
@@ -534,13 +588,16 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
       onClearScope={() => setSelectedDocIds(new Set())}
       savedKeys={savedKeys}
       onKeysChanged={() => void refreshKeys()}
-      providers={providers}
+      providers={displayProviders}
       provider={provider}
       model={model}
       defaultProvider={defaultProvider}
       presets={presets}
       onModelChange={handleModelChange}
       onAttach={attachFile}
+      omnirouteEnabled={omnirouteEnabled}
+      omnirouteMode={omnirouteMode}
+      onToggleOmniRoute={toggleOmniRoute}
     />
   );
 

@@ -10,6 +10,7 @@ import {
   Lock,
   Settings,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import type {
   ModelPreset,
@@ -173,6 +174,102 @@ function WebSearchToggle() {
             label={enabled ? 'On — questions that need current info also check the web' : 'Off — documents and model knowledge only'}
             tone={enabled ? 'success' : 'neutral'}
           />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OmniRouteToggle() {
+  const [omniroute, setOmniroute] = useState<{ serverEnabled: boolean; enabled: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [gateway, setGateway] = useState<{ reachable: boolean; models: number } | null>(null);
+  const toast = useToast();
+
+  useEffect(() => {
+    api
+      .fetchSettings()
+      .then((s) => setOmniroute(s.omniroute))
+      .catch(() => setOmniroute({ serverEnabled: false, enabled: false }));
+  }, []);
+
+  useEffect(() => {
+    if (!omniroute?.enabled) return;
+    api
+      .fetchOmniRouteModels()
+      .then((res) => setGateway({ reachable: res.reachable, models: res.models.length }))
+      .catch(() => setGateway({ reachable: false, models: 0 }));
+  }, [omniroute?.enabled]);
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      const res = await api.setOmniRouteEnabled(enabled);
+      setOmniroute(res.omniroute);
+      setGateway(enabled ? { reachable: false, models: 0 } : null);
+      toast.success(enabled ? 'OmniRoute free mode is on' : 'OmniRoute free mode is off');
+    } catch (err) {
+      toast.error('Could not update OmniRoute', (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const serverEnabled = omniroute?.serverEnabled ?? false;
+  const enabled = omniroute?.enabled ?? false;
+
+  return (
+    <div className="card p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
+            <Zap className="h-5 w-5" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-ink-primary">Free OmniRoute gateway</h3>
+            <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+              100+ free, keyless models (Kimi, Claude, GPT, Gemini, DeepSeek…) through a local
+              OpenAI-compatible proxy — no API key needed. Also used automatically whenever your
+              provider key runs out of credits.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {busy && <Loader2 className="h-4 w-4 animate-spin text-ink-muted" />}
+          <Switch
+            checked={enabled}
+            disabled={!serverEnabled || busy}
+            onCheckedChange={(v) => void toggle(v)}
+            aria-label="Toggle free OmniRoute gateway"
+          />
+        </div>
+      </div>
+
+      {!serverEnabled ? (
+        <p className="mt-4 rounded-lg border border-warning/20 bg-warning-subtle px-3 py-2.5 text-xs leading-relaxed text-amber-200">
+          OmniRoute is disabled by the server administrator. Ask them to set{' '}
+          <code className="rounded bg-surface-800 px-1 py-0.5 font-mono text-[11px]">
+            OMNIROUTE_ENABLED=true
+          </code>{' '}
+          in the environment.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {gateway ? (
+            <StatusBadge
+              label={
+                gateway.reachable
+                  ? `On — gateway reachable, ${gateway.models} free models available`
+                  : 'On — gateway not reachable yet (is OmniRoute running on localhost:20128?)'
+              }
+              tone={gateway.reachable ? 'success' : 'warning'}
+            />
+          ) : (
+            <StatusBadge
+              label={enabled ? 'On — questions may also fall back to free models' : 'Off — your own provider keys only'}
+              tone={enabled ? 'success' : 'neutral'}
+            />
+          )}
         </div>
       )}
     </div>
@@ -383,6 +480,17 @@ export default function SettingsPage() {
           {PROVIDERS.map((meta) => (
             <KeyCard key={meta.id} meta={meta} />
           ))}
+        </section>
+
+        {/* ── Free OmniRoute gateway ────────────────────────────────────── */}
+        <section className="space-y-3">
+          <SectionTitle
+            icon={<Zap className="h-5 w-5" />}
+            description="Chat with free, keyless models through the local OmniRoute proxy. When this is on, it is also used as the automatic fallback if your OpenRouter or NVIDIA key runs out of credits."
+          >
+            Free OmniRoute gateway
+          </SectionTitle>
+          <OmniRouteToggle />
         </section>
 
         {/* ── Web search ─────────────────────────────────────────────────── */}

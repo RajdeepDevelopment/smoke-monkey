@@ -59,6 +59,20 @@ class Settings(BaseSettings):
         "nvidia/nemotron-3-ultra-550b-a55b"
     )
 
+    # OmniRoute (free, keyless) — local OpenAI-compatible gateway
+    # (github.com/diegosouzapw/OmniRoute). Zero-config free models, smart
+    # routing via the "auto" model. The API key is a dummy accepted by the
+    # gateway; free/keyless models need no real credentials. Used both as an
+    # explicit chat mode and as an automatic fallback when the primary
+    # provider's key/token is exhausted.
+    omniroute_enabled: bool = False
+    omniroute_base_url: str = "http://localhost:20128/v1"
+    omniroute_api_key: str = "omniroute"
+    omniroute_chat_model: str = "auto"
+    omniroute_chat_models: str = (
+        "auto,auto/best-free,groq/llama-3.3-70b,lc/LongCat-Flash-Lite"
+    )
+
     # NVIDIA NIM (cloud) — OpenAI-compatible chat/embeddings at
     # integrate.api.nvidia.com and a dedicated retrieval rerank endpoint.
     nvidia_api_key: str = ""

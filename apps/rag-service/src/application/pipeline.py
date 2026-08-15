@@ -18,6 +18,7 @@ from src.application.mem.agent import MemoryAgent
 from src.application.mem.models import MemoryType
 from src.application.mem.planner import MemoryPlan, RetrievalPlanner
 from src.application.memory import MemoryStore, rank_memory
+from src.application.omniroute import omniroute_enabled_for
 from src.application.router import QueryRouter, RoutePlan, _fallback_plan
 from src.application.telemetry import Telemetry
 from src.application.websearch import WebSearchClient, format_web_result, web_search_enabled_for
@@ -173,11 +174,28 @@ class QueryPipeline:
                 openrouter_model=settings.openrouter_chat_model,
                 nvidia_api_key=settings.nvidia_api_key,
                 nvidia_model=settings.nvidia_chat_model,
+                omniroute_api_key=settings.omniroute_api_key,
+                omniroute_model=settings.omniroute_chat_model,
                 model=model,
                 api_key=api_key,
             )
             logger.info("chat llm switched to provider=%s model=%s", provider, model)
         return self._llm_cache[cache_key]
+
+    async def _omniroute_ready(self, user_id: str | None) -> bool:
+        """Whether the free OmniRoute gateway may be used for this user.
+
+        Gates on the server-level env flag plus the per-user Settings opt-in,
+        so an administrator can kill the feature globally and users can still
+        opt out individually.
+        """
+        if not settings.omniroute_enabled:
+            return False
+        return await omniroute_enabled_for(self.redis, user_id)
+
+    def _omniroute_llm(self) -> ChatLLM:
+        """Build (and cache) the OmniRoute client used as the fallback provider."""
+        return self.resolve_chat_llm("omniroute", None, None)
 
     # ── Query understanding ─────────────────────────────────────────────────
 
@@ -652,22 +670,38 @@ class QueryPipeline:
             }
             return
 
+        omniroute_ready = await self._omniroute_ready(request.user_id)
         api_key = await self.resolve_api_key(request)
         try:
             llm = self.resolve_chat_llm(request.provider, request.model, api_key)
         except ValueError as exc:
-            logger.warning("chat llm unavailable: %s", exc)
-            record["error"] = True
-            record["error_message"] = "no provider key"
-            yield {
-                "type": "error",
-                "message": (
-                    "No API key available for this provider. Save your OpenRouter "
-                    "or NVIDIA key in Settings, or ask an administrator to configure "
-                    "OPENROUTER_API_KEY / NVIDIA_API_KEY."
-                ),
-            }
-            return
+            if omniroute_ready and (request.provider or "").lower().strip() not in (
+                "ollama",
+                "gemini",
+            ):
+                # No usable key for the requested cloud provider — transparently
+                # fall back to the free OmniRoute gateway so chat still works.
+                logger.warning("chat llm unavailable (%s); falling back to OmniRoute", exc)
+                record["fallback"] = True
+                record["error_message"] = str(exc)[:300]
+                llm = self._omniroute_llm()
+                yield {
+                    "type": "notice",
+                    "message": "No key available for your provider — answering via the free OmniRoute fallback.",
+                }
+            else:
+                logger.warning("chat llm unavailable: %s", exc)
+                record["error"] = True
+                record["error_message"] = "no provider key"
+                yield {
+                    "type": "error",
+                    "message": (
+                        "No API key available for this provider. Save your OpenRouter "
+                        "or NVIDIA key in Settings, or ask an administrator to configure "
+                        "OPENROUTER_API_KEY / NVIDIA_API_KEY."
+                    ),
+                }
+                return
         record["provider"] = llm.provider_id
         record["model"] = request.model or getattr(llm, "model", None) or ""
         yield {"type": "meta", "conversationId": request.conversation_id, "provider": llm.provider_id}
@@ -867,11 +901,52 @@ class QueryPipeline:
                 answer_parts.append(delta)
                 yield {"type": "chunk", "text": delta}
         except Exception as exc:
-            logger.exception("generation failed")
-            record["error"] = True
+            # The primary provider failed mid-generation (bad key, exhausted
+            # credits/rate limit, upstream outage). When the user enabled the
+            # free OmniRoute gateway, retry the same request there and explain
+            # why — chat must keep working even when a key runs dry.
+            if not omniroute_ready:
+                logger.exception("generation failed")
+                record["error"] = True
+                record["error_message"] = str(exc)[:300]
+                yield {"type": "error", "message": f"Generation failed: {exc}"}
+                return
+            logger.warning("primary generation failed (%s); retrying via OmniRoute", exc)
+            record["fallback"] = True
             record["error_message"] = str(exc)[:300]
-            yield {"type": "error", "message": f"Generation failed: {exc}"}
-            return
+            llm = self._omniroute_llm()
+            api_key = None
+            t_gen = time.perf_counter()
+            first_token = True
+            yield {
+                "type": "status",
+                "stage": "generation",
+                "label": "Primary model unavailable — using free OmniRoute…",
+            }
+            try:
+                async for delta in llm.chat_stream(
+                    messages,
+                    temperature=settings.llm_temperature,
+                    max_tokens=max_tokens,
+                    api_key=api_key,
+                ):
+                    if first_token:
+                        t["llm_ttft_ms"] = round((time.perf_counter() - t_gen) * 1000, 1)
+                        first_token = False
+                    answer_parts.append(delta)
+                    yield {"type": "chunk", "text": delta}
+            except Exception as fb_exc:
+                logger.exception("OmniRoute fallback also failed")
+                record["error"] = True
+                record["error_message"] = str(fb_exc)[:300]
+                yield {"type": "error", "message": f"Generation failed: {fb_exc}"}
+                return
+            yield {
+                "type": "notice",
+                "message": f"Answered via the free OmniRoute fallback — the primary model failed: {exc}",
+            }
+        record["provider"] = llm.provider_id
+        record["model"] = getattr(llm, "model", None) or record.get("model") or ""
         t["llm_generation_ms"] = round((time.perf_counter() - t_gen) * 1000, 1)
 
         answer = "".join(answer_parts)

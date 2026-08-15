@@ -268,11 +268,23 @@ def build_chat_llm(
     nvidia_base_url: str = "",
     nvidia_rerank_base_url: str = "",
     nvidia_rerank_model: str = "",
+    omniroute_api_key: str = "",
+    omniroute_model: str | None = None,
     model: str | None = None,
     api_key: str | None = None,
 ) -> ChatLLM:
     """Build a chat LLM client for the requested provider (defaults from config)."""
     provider = (provider or "ollama").lower().strip()
+    if provider == "omniroute":
+        from src.generation.openrouter import OpenRouterClient
+
+        return OpenRouterClient(
+            api_key=api_key or omniroute_api_key or "omniroute",
+            model=model or omniroute_model or "auto",
+            provider_id="omniroute",
+            name="OmniRoute",
+            base_url=settings.omniroute_base_url,
+        )
     if provider == "openrouter":
         from src.generation.openrouter import OpenRouterClient
 
@@ -313,4 +325,4 @@ def build_chat_llm(
             embed_model=ollama_embed_model,
             embed_dims=ollama_embed_dims,
         )
-    raise ValueError(f"unknown LLM provider: {provider} (expected 'ollama', 'openrouter', 'nvidia' or 'gemini')")
+    raise ValueError(f"unknown LLM provider: {provider} (expected 'ollama', 'openrouter', 'nvidia', 'gemini' or 'omniroute')")

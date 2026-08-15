@@ -5,6 +5,7 @@ import type {
   MessageDto,
   MetricsSummaryDto,
   ModelsResponseDto,
+  OmniRouteModelsResponseDto,
   RetrieveResponseDto,
   UserKeyDto,
   UserKeysResponseDto,
@@ -132,6 +133,7 @@ export const api = {
 
   // models
   fetchModels: () => request<ModelsResponseDto>('/api/models'),
+  fetchOmniRouteModels: () => request<OmniRouteModelsResponseDto>('/api/models/omniroute'),
 
   // playground (retrieval only, no generation)
   playgroundRetrieve: (payload: {
@@ -174,10 +176,15 @@ export const api = {
       method: 'POST',
     }),
 
-  // user feature settings (web search opt-in)
+  // user feature settings (web search + OmniRoute opt-in)
   fetchSettings: () => request<UserSettingsDto>('/api/settings'),
   setWebSearchEnabled: (enabled: boolean) =>
     request<Pick<UserSettingsDto, 'webSearch'>>('/api/settings/web-search', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  setOmniRouteEnabled: (enabled: boolean) =>
+    request<Pick<UserSettingsDto, 'omniroute'>>('/api/settings/omniroute', {
       method: 'PUT',
       body: JSON.stringify({ enabled }),
     }),

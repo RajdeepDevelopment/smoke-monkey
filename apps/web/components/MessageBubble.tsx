@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useState } from 'react';
-import { Check, Copy, FileText, Globe } from 'lucide-react';
+import { Check, Copy, FileText, Globe, Zap } from 'lucide-react';
 import type { CitationDto, WebSourceDto } from '@rag/contracts';
 import { BrandIcon } from './BrandIcon';
 import { CitationMarkdown } from './chat/CitationMarkdown';
@@ -16,6 +16,8 @@ export interface BubbleMessage {
   webSources?: WebSourceDto[] | null;
   confidence?: number | null;
   pending?: boolean;
+  /** Transient explanation (e.g. "answered via the free OmniRoute fallback…"). */
+  notice?: string | null;
 }
 
 interface MessageBubbleProps {
@@ -79,7 +81,7 @@ export const MessageBubble = memo(function MessageBubble({
   onOpenSources,
   onHighlight,
 }: MessageBubbleProps) {
-  const { role, content, citations, webSources, pending, confidence } = message;
+  const { role, content, citations, webSources, pending, confidence, notice } = message;
   const isUser = role === 'user';
   const knowledgeCount = (citations ?? []).filter((c) => c.text && c.text.trim().length > 0).length;
   const webCount = (webSources ?? []).filter((s) => s.url || s.content).length;
@@ -129,6 +131,13 @@ export const MessageBubble = memo(function MessageBubble({
             />
             {pending && <span className="ml-0.5 animate-pulse text-ink-muted">▍</span>}
           </div>
+
+          {notice && (
+            <div className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-accent/25 bg-accent/10 px-2.5 py-1.5 text-[11px] leading-snug text-accent">
+              <Zap className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>{notice}</span>
+            </div>
+          )}
 
           <div className="mt-1.5 flex items-center gap-1.5">
             {totalSources > 0 && !pending && (

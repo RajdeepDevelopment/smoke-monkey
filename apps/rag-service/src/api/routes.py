@@ -5,6 +5,7 @@ import json
 import logging
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Request
 from sse_starlette.sse import EventSourceResponse
 
@@ -14,6 +15,10 @@ from src.domain import FeedbackRequest, QueryRequest, RetrieveRequest
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
+
+# Keyless/free namespaces exposed by the OmniRoute gateway (smart routing via
+# "auto"). Used to filter the live /v1/models list to the free tier.
+OMNIROUTE_FREE_NAMESPACES = {"oc", "felo", "lc", "groq"}
 
 
 def _json_default(value: Any) -> Any:
@@ -88,6 +93,12 @@ async def models() -> dict:
         settings.nvidia_chat_model
     ]
     providers.append({"id": "nvidia", "label": "NVIDIA NIM (cloud)", "models": nv_models})
+    or_models_free = [
+        m.strip() for m in settings.omniroute_chat_models.split(",") if m.strip()
+    ] or [settings.omniroute_chat_model]
+    providers.append(
+        {"id": "omniroute", "label": "OmniRoute (free, keyless)", "models": or_models_free}
+    )
 
     if settings.embed_provider == "openrouter":
         embedding = {
@@ -137,6 +148,7 @@ async def models() -> dict:
         [chat_model_entry(m, "openrouter") for m in or_models]
         + [chat_model_entry(m, "nvidia") for m in nv_models]
         + [chat_model_entry(settings.ollama_chat_model, "ollama")]
+        + [{"id": m, "name": m, "provider": "omniroute", "isFree": True} for m in or_models_free]
     )
 
     # Recommended presets from the dynamic catalog (the "model picker" table).
@@ -170,6 +182,56 @@ async def models() -> dict:
         "catalog": catalog_models,
         "presets": presets,
     }
+
+
+@router.get("/omniroute/models")
+async def omniroute_models() -> dict:
+    """Live free/keyless model list from the local OmniRoute gateway.
+
+    OmniRoute is a local OpenAI-compatible proxy (``OMNIROUTE_BASE_URL``), so
+    this is a passthrough to its ``/v1/models`` endpoint filtered down to the
+    free tier: the smart-routing ``auto`` variants plus the keyless namespaces
+    (``oc/…``, ``felo/…``, ``lc/…``, ``groq/…``). When the gateway is
+    unreachable the UI falls back to the curated static list from GET /models.
+    """
+    base = settings.omniroute_base_url.rstrip("/")
+    headers = {"authorization": f"Bearer {settings.omniroute_api_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
+            resp = await client.get(f"{base}/models", headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:  # noqa: BLE001 - gateway may simply be offline
+        logger.warning("OmniRoute /models unreachable: %s", exc)
+        return {"reachable": False, "models": []}
+    models: list[dict] = []
+    seen: set[str] = set()
+    for item in (data.get("data") or []):
+        model_id = str(item.get("id") or "").strip()
+        if not model_id or model_id in seen:
+            continue
+        namespace = model_id.split("/", 1)[0].lower()
+        is_free = (
+            "auto" in model_id
+            or "/free" in model_id
+            or model_id.endswith(":free")
+            or "free" in model_id
+            or namespace in OMNIROUTE_FREE_NAMESPACES
+        )
+        if not is_free:
+            continue
+        seen.add(model_id)
+        models.append(
+            {
+                "id": model_id,
+                "name": model_id,
+                "provider": namespace or "omniroute",
+                "isFree": True,
+            }
+        )
+        if len(models) >= 150:
+            break
+    return {"reachable": True, "models": models}
 
 
 @router.post("/query")

@@ -12,6 +12,7 @@ import {
   Paperclip,
   Search,
   Square,
+  Zap,
 } from 'lucide-react';
 import type { DocumentDto, ModelPreset, ModelProvider, UserKeyDto } from '@rag/contracts';
 import { api } from '../../lib/api';
@@ -40,6 +41,12 @@ interface ChatComposerProps {
   onModelChange: (provider: string, model: string) => void;
   onAttach: (file: File) => void;
   placeholder?: string;
+  /** Free OmniRoute gateway is enabled (server + user opt-in). */
+  omnirouteEnabled?: boolean;
+  /** Whether the composer is currently in free OmniRoute mode. */
+  omnirouteMode?: boolean;
+  /** Toggle the free OmniRoute mode on/off. */
+  onToggleOmniRoute?: () => void;
 }
 
 const KEY_PROVIDERS = [
@@ -269,6 +276,9 @@ export function ChatComposer({
   onModelChange,
   onAttach,
   placeholder,
+  omnirouteEnabled,
+  omnirouteMode,
+  onToggleOmniRoute,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const needsKey = CHAT_KEY_PROVIDERS.has(provider) && !savedKeys.some((k) => k.provider === provider);
@@ -361,6 +371,30 @@ export function ChatComposer({
           <KeyManager savedKeys={savedKeys} onChanged={onKeysChanged} />
         </ResponsivePopover>
 
+        {omnirouteEnabled && (
+          <button
+            type="button"
+            onClick={onToggleOmniRoute}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+              omnirouteMode
+                ? 'bg-warning/15 text-warning hover:bg-warning/25'
+                : 'text-ink-secondary hover:bg-surface-800 hover:text-white',
+            )}
+            title={
+              omnirouteMode
+                ? 'Free OmniRoute mode is on — keyless models, no API key needed'
+                : 'Turn on free OmniRoute mode (keyless models, no API key)'
+            }
+          >
+            <Zap className="h-4 w-4" />
+            <span className="hidden sm:inline">Free mode</span>
+            {omnirouteMode && (
+              <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold text-black">ON</span>
+            )}
+          </button>
+        )}
+
         <span className="hidden flex-1 sm:block" />
 
         {streaming ? (
@@ -397,11 +431,18 @@ export function ChatComposer({
             onChange={onModelChange}
             compact
           />
-          {needsKey && (
-            <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-warning">
-              <Search className="h-3 w-3" />
-              Add your {providers.find((p) => p.id === provider)?.label ?? provider} key to chat
+          {omnirouteMode ? (
+            <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-success">
+              <Zap className="h-3 w-3" />
+              100+ free models — no key needed
             </span>
+          ) : (
+            needsKey && (
+              <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-warning">
+                <Search className="h-3 w-3" />
+                Add your {providers.find((p) => p.id === provider)?.label ?? provider} key to chat
+              </span>
+            )
           )}
         </div>
       )}

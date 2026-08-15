@@ -241,4 +241,25 @@ export interface UserSettingsDto {
     /** The user's own opt-in toggle. */
     enabled: boolean;
   };
+  /** Free OmniRoute gateway (local OpenAI-compatible proxy, keyless models). */
+  omniroute: {
+    /** Server-level gate (OMNIROUTE_ENABLED env) — locked when false. */
+    serverEnabled: boolean;
+    /** The user's own opt-in toggle. */
+    enabled: boolean;
+  };
+}
+
+/** One model exposed by the local OmniRoute gateway (free/keyless). */
+export interface OmniRouteModelDto {
+  id: string;
+  name: string;
+  provider: string;
+  isFree: boolean;
+}
+
+/** Response from GET /api/models/omniroute (live list from the OmniRoute proxy). */
+export interface OmniRouteModelsResponseDto {
+  reachable: boolean;
+  models: OmniRouteModelDto[];
 }
