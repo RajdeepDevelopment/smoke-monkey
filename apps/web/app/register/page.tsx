@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../components/AuthProvider';
+import { AuthCard } from '../../components/auth/AuthCard';
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -29,46 +29,23 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-sm pt-16">
-      <div className="card p-6">
-        <h1 className="mb-5 text-lg font-semibold text-white">Create account</h1>
-        <form onSubmit={submit} className="space-y-3">
-          <input
-            className="input"
-            placeholder="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <input
-            className="input"
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            className="input"
-            type="password"
-            placeholder="Password (min 8 chars)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            minLength={8}
-            required
-          />
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <button className="btn-primary w-full" disabled={busy}>
-            {busy ? 'Creating…' : 'Sign up'}
-          </button>
-        </form>
-        <p className="mt-5 text-center text-sm text-slate-500">
-          Already have an account?{' '}
-          <Link href="/login" className="text-accent hover:underline">
-            Sign in
-          </Link>
-        </p>
-      </div>
+    <div className="flex min-h-full items-center justify-center px-4 py-12">
+      <AuthCard
+        title="Create your account"
+        subtitle="Start building a personal AI workspace with RAG and Super Memory."
+        showName
+        submitLabel="Sign up"
+        submittingLabel="Creating…"
+        busy={busy}
+        error={error}
+        onSubmit={submit}
+        fields={{
+          name: { value: name, onChange: setName },
+          email: { value: email, onChange: setEmail },
+          password: { value: password, onChange: setPassword },
+        }}
+        footer={{ href: '/login', label: 'Already have an account?', action: 'Sign in' }}
+      />
     </div>
   );
 }

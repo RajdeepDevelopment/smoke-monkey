@@ -68,7 +68,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
         </pre>
       ) : svg ? (
         <div
-          className="min-w-[520px] overflow-x-auto [&_svg]:mx-auto [&_svg]:block [&_svg]:max-w-none"
+          className="w-full max-w-full overflow-x-auto [&_svg]:mx-auto [&_svg]:block [&_svg]:min-w-[520px] [&_svg]:max-w-none"
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       ) : (

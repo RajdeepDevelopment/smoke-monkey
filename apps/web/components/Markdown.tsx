@@ -22,6 +22,8 @@ import type { FileEntry, ProjectMetadata } from './visuals/fileUtils';
 
 interface MarkdownProps {
   content: string;
+  /** Extra react-markdown components merged over the built-in ones. */
+  components?: React.ComponentProps<typeof ReactMarkdown>['components'];
 }
 
 type Segment =
@@ -255,7 +257,7 @@ function StreamingMetaAddon() {
   );
 }
 
-function MarkdownBody({ content }: MarkdownProps) {
+function MarkdownBody({ content, components }: MarkdownProps) {
   const segments = splitAddons(content);
   return (
     <div className="md-body">
@@ -292,6 +294,7 @@ function MarkdownBody({ content }: MarkdownProps) {
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight]}
               components={{
+                ...components,
                 pre: ({ children }) => (
                   <CodeBlock language={getLanguage(children)}>{children}</CodeBlock>
                 ),
@@ -323,6 +326,6 @@ function getLanguage(children: unknown): string {
  * File-Based project explorers). Memoized so only the streaming message
  * re-renders on token updates.
  */
-export const Markdown = memo(function Markdown({ content }: MarkdownProps) {
-  return <MarkdownBody content={content} />;
+export const Markdown = memo(function Markdown({ content, components }: MarkdownProps) {
+  return <MarkdownBody content={content} components={components} />;
 });

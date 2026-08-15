@@ -1,10 +1,30 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { ModelPreset, ModelsResponseDto, SaveKeyResultDto, UserKeyDto } from '@rag/contracts';
+import {
+  BrainCircuit,
+  Globe,
+  Key,
+  Layers,
+  Loader2,
+  Lock,
+  Settings,
+  ShieldCheck,
+} from 'lucide-react';
+import type {
+  ModelPreset,
+  ModelsResponseDto,
+  SaveKeyResultDto,
+  UserKeyDto,
+} from '@rag/contracts';
 import { api } from '../../lib/api';
 import { useAuth } from '../../components/AuthProvider';
 import { PageScroll } from '../../components/PageScroll';
+import { PageHeader } from '../../components/PageHeader';
+import { StatusBadge } from '../../components/StatusBadge';
+import { useToast } from '../../components/Toast';
+import { Switch } from '../../components/ui/switch';
+import { cn } from '../../lib/utils';
 
 interface ProviderMeta {
   id: string;
@@ -34,13 +54,9 @@ const PROVIDERS: ProviderMeta[] = [
   },
 ];
 
-/**
- * Web-search providers the user can bring their own key for. These are NOT
- * live-validated when saved — every probe burns a paid search credit — so the
- * key cards render with `verifies={false}`. Google needs a server-configured
- * Search Engine ID (GOOGLE_SEARCH_CX) so it is not offered here; DuckDuckGo is
- * free and needs no key at all.
- */
+/** Web-search providers. Not live-validated on save (each probe costs a paid
+ *  credit). Google needs a server-configured Search Engine ID; DuckDuckGo is
+ *  free and needs no key. */
 const SEARCH_PROVIDERS: ProviderMeta[] = [
   {
     id: 'tavily',
@@ -68,10 +84,32 @@ const SEARCH_PROVIDERS: ProviderMeta[] = [
   },
 ];
 
+function SectionTitle({
+  icon,
+  children,
+  description,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  description?: string;
+}) {
+  return (
+    <div className="mb-3 flex items-start gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary-subtle text-primary">
+        {icon}
+      </span>
+      <div>
+        <h2 className="text-base font-semibold text-ink-primary">{children}</h2>
+        {description && <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">{description}</p>}
+      </div>
+    </div>
+  );
+}
+
 function WebSearchToggle() {
   const [webSearch, setWebSearch] = useState<{ serverEnabled: boolean; enabled: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     api
@@ -82,13 +120,12 @@ function WebSearchToggle() {
 
   const toggle = async (enabled: boolean) => {
     setBusy(true);
-    setMsg(null);
     try {
       const res = await api.setWebSearchEnabled(enabled);
       setWebSearch(res.webSearch);
-      setMsg({ kind: 'ok', text: enabled ? 'Web search is on.' : 'Web search is off.' });
+      toast.success(enabled ? 'Web search is on' : 'Web search is off');
     } catch (err) {
-      setMsg({ kind: 'err', text: (err as Error).message });
+      toast.error('Could not update web search', (err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -98,53 +135,45 @@ function WebSearchToggle() {
   const enabled = webSearch?.enabled ?? false;
 
   return (
-    <div className="card space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-white">Live web search</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Adds fresh, current information from the web when a question needs it.
-          </p>
+    <div className="card p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-subtle text-accent">
+            <Globe className="h-5 w-5" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-ink-primary">Live web search</h3>
+            <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+              Adds fresh, current information from the web when a question needs it.
+            </p>
+          </div>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          aria-disabled={!serverEnabled || busy}
-          disabled={!serverEnabled || busy}
-          onClick={() => void toggle(!enabled)}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-            enabled ? 'bg-primary' : 'bg-surface-600'
-          } ${!serverEnabled ? 'cursor-not-allowed opacity-50' : ''}`}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-              enabled ? 'translate-x-[22px]' : 'translate-x-0.5'
-            }`}
+        <div className="flex items-center gap-2">
+          {busy && <Loader2 className="h-4 w-4 animate-spin text-ink-muted" />}
+          <Switch
+            checked={enabled}
+            disabled={!serverEnabled || busy}
+            onCheckedChange={(v) => void toggle(v)}
+            aria-label="Toggle live web search"
           />
-        </button>
+        </div>
       </div>
 
       {!serverEnabled ? (
-        <p className="text-xs text-amber-300">
+        <p className="mt-4 rounded-lg border border-warning/20 bg-warning-subtle px-3 py-2.5 text-xs leading-relaxed text-amber-200">
           Web search is disabled by the server administrator. Ask them to set{' '}
-          <code className="rounded bg-surface-800 px-1 py-0.5 text-[11px] text-slate-300">
+          <code className="rounded bg-surface-800 px-1 py-0.5 font-mono text-[11px]">
             WEB_SEARCH_ENABLED=true
           </code>{' '}
           in the environment.
         </p>
       ) : (
-        <p className={`text-xs ${enabled ? 'text-emerald-300' : 'text-slate-500'}`}>
-          {enabled
-            ? 'On — questions that need current info also check the web.'
-            : 'Off — answers come from your documents and model knowledge only.'}
-        </p>
-      )}
-
-      {msg && (
-        <p className={`text-sm ${msg.kind === 'ok' ? 'text-emerald-300' : 'text-red-400'}`}>
-          {msg.text}
-        </p>
+        <div className="mt-4">
+          <StatusBadge
+            label={enabled ? 'On — questions that need current info also check the web' : 'Off — documents and model knowledge only'}
+            tone={enabled ? 'success' : 'neutral'}
+          />
+        </div>
       )}
     </div>
   );
@@ -193,7 +222,10 @@ function KeyCard({ meta, verifies = true }: { meta: ProviderMeta; verifies?: boo
     try {
       const res = await api.testKey(meta.id);
       setTestInfo(res.info);
-      setMsg({ kind: 'ok', text: verifies ? 'Key is valid.' : 'Format looks valid (live check skipped to save quota).' });
+      setMsg({
+        kind: 'ok',
+        text: verifies ? 'Key is valid.' : 'Format looks valid (live check skipped to save quota).',
+      });
     } catch (err) {
       setMsg({ kind: 'err', text: (err as Error).message });
     } finally {
@@ -217,32 +249,35 @@ function KeyCard({ meta, verifies = true }: { meta: ProviderMeta; verifies?: boo
   };
 
   return (
-    <div className="card space-y-3">
+    <div className="card space-y-3 p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-white">{meta.label}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-ink-primary">{meta.label}</h3>
+            {saved && (
+              <span className="rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
+                {saved.keyPrefix}…{saved.last4}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
             {meta.hint}{' '}
-            <a className="text-accent hover:underline" href={meta.getKeyUrl} target="_blank" rel="noreferrer">
+            <a className="font-medium text-accent hover:underline" href={meta.getKeyUrl} target="_blank" rel="noreferrer">
               Get one →
             </a>
           </p>
         </div>
-        {saved && (
-          <span className="rounded-full bg-emerald-900/50 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
-            {saved.keyPrefix}…{saved.last4}
-          </span>
-        )}
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-850 text-ink-muted">
+          <Key className="h-4 w-4" />
+        </span>
       </div>
 
       {testInfo && (
-        <div className="rounded-lg border border-surface-600 bg-surface-800 px-3 py-2 text-xs text-slate-300">
-          <span className="font-medium text-slate-200">{testInfo.label || meta.label}</span>
+        <div className="rounded-lg border border-surface-700 bg-surface-850 px-3 py-2 text-xs text-ink-secondary">
+          <span className="font-medium text-ink-primary">{testInfo.label || meta.label}</span>
           {testInfo.isFreeTier && <span> · free tier</span>}
-          {testInfo.remaining != null && (
-            <span> · ${testInfo.remaining.toFixed(2)} remaining</span>
-          )}
-          {testInfo.rateLimited && <span className="text-amber-300"> · rate limited</span>}
+          {testInfo.remaining != null && <span> · ${testInfo.remaining.toFixed(2)} remaining</span>}
+          {testInfo.rateLimited && <span className="text-warning"> · rate limited</span>}
         </div>
       )}
 
@@ -254,15 +289,15 @@ function KeyCard({ meta, verifies = true }: { meta: ProviderMeta; verifies?: boo
         }}
       >
         <input
-          className="input font-mono"
+          className="input h-10 flex-1 font-mono text-sm"
           type="password"
           placeholder={saved ? 'Replace existing key…' : meta.placeholder}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           autoComplete="off"
         />
-        <button className="btn-primary shrink-0" disabled={busy || !value.trim()}>
-          Save
+        <button className="btn-primary h-10 shrink-0" disabled={busy || !value.trim()}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
         </button>
       </form>
 
@@ -272,7 +307,7 @@ function KeyCard({ meta, verifies = true }: { meta: ProviderMeta; verifies?: boo
             Test key
           </button>
           <button
-            className="btn-ghost flex-1 border-red-900 text-red-300 hover:bg-red-950/40"
+            className="btn-ghost flex-1 border-error/30 text-red-300 hover:bg-error-subtle"
             onClick={remove}
             disabled={busy}
           >
@@ -282,16 +317,22 @@ function KeyCard({ meta, verifies = true }: { meta: ProviderMeta; verifies?: boo
       )}
 
       {msg && (
-        <p className={`text-sm ${msg.kind === 'ok' ? 'text-emerald-300' : 'text-red-400'}`}>
-          {msg.text}
-        </p>
+        <p className={cn('text-xs', msg.kind === 'ok' ? 'text-success' : 'text-red-400')}>{msg.text}</p>
       )}
     </div>
   );
 }
 
 function Stars({ rating }: { rating: number }) {
-  return <span className="text-amber-300">{'★'.repeat(rating)}<span className="text-slate-700">{'★'.repeat(5 - rating)}</span></span>;
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {Array.from({ length: 5 }, (_, i) => (
+        <span key={i} className={i < rating ? 'text-warning' : 'text-surface-600'}>
+          ★
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export default function SettingsPage() {
@@ -303,139 +344,186 @@ export default function SettingsPage() {
   }, []);
 
   const presets: ModelPreset[] = models?.presets ?? [];
-  const chatPresets = presets.filter((p) => ['main', 'reasoning', 'coding', 'flagship', 'efficient', 'fast', 'vision'].includes(p.role));
-  const retrievalPresets = presets.filter((p) => ['embed', 'embed-multi', 'rerank'].includes(p.role));
+  const chatPresets = presets.filter((p) =>
+    ['main', 'reasoning', 'coding', 'flagship', 'efficient', 'fast', 'vision'].includes(p.role),
+  );
+  const retrievalPresets = presets.filter((p) =>
+    ['embed', 'embed-multi', 'rerank'].includes(p.role),
+  );
 
   return (
     <PageScroll>
-      <div className="mx-auto w-full max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-white">Settings</h1>
-        <p className="text-sm text-slate-500">
-          Signed in as {user?.email}. Provider keys are encrypted on the server and only used by you.
-        </p>
-      </div>
+      <div className="mx-auto w-full max-w-3xl space-y-8">
+        <PageHeader
+          title="Settings"
+          description={
+            user
+              ? `Signed in as ${user.email}. Provider keys are encrypted on the server and only used by you.`
+              : 'Manage your account, keys and preferences.'
+          }
+          icon={<Settings className="h-5 w-5" />}
+          actions={
+            user && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-surface-700 bg-surface-900/60 px-3 py-1.5 text-xs text-ink-secondary">
+                <ShieldCheck className="h-3.5 w-3.5 text-success" />
+                {user.email}
+              </span>
+            )
+          }
+        />
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Provider API keys
-        </h2>
-        <p className="text-xs text-slate-500">
-          When you save your own key it is always used for your requests (chat, embeddings and
-          reranking) — server defaults are only a fallback.
-        </p>
-        {PROVIDERS.map((meta) => (
-          <KeyCard key={meta.id} meta={meta} />
-        ))}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Web search
-        </h2>
-        <WebSearchToggle />
-        <p className="text-xs text-slate-500">
-          Search providers are queried together when web search is on — every provider with
-          a key below contributes results. Google needs a server-configured Search Engine ID,
-          and DuckDuckGo is free (no key needed) as the automatic fallback.
-        </p>
-        {SEARCH_PROVIDERS.map((meta) => (
-          <KeyCard key={meta.id} meta={meta} verifies={false} />
-        ))}
-      </section>
-
-      {models && (
+        {/* ── Provider API keys ─────────────────────────────────────────── */}
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Active RAG layers
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="card text-sm">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Embedding</p>
-              <p className="mt-1 truncate font-mono text-xs text-slate-200">
-                {models.embedding.provider}: {models.embedding.model}
-              </p>
-              <p className="text-xs text-slate-500">{models.embedding.dims} dims · fixed by the pgvector index</p>
-            </div>
-            <div className="card text-sm">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Rerank</p>
-              <p className="mt-1 truncate font-mono text-xs text-slate-200">
-                {models.rerank.enabled ? `${models.rerank.provider}: ${models.rerank.model}` : 'disabled'}
-              </p>
-              <p className="text-xs text-slate-500">Re-scores retrieval results before the LLM</p>
-            </div>
-          </div>
+          <SectionTitle
+            icon={<Key className="h-5 w-5" />}
+            description="When you save your own key it is always used for your requests (chat, embeddings and reranking) — server defaults are only a fallback."
+          >
+            Provider API keys
+          </SectionTitle>
+          {PROVIDERS.map((meta) => (
+            <KeyCard key={meta.id} meta={meta} />
+          ))}
         </section>
-      )}
 
-      {chatPresets.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Recommended chat models
-          </h2>
-          <div className="card overflow-x-auto p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-surface-700 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5">Role</th>
-                  <th className="px-4 py-2.5">Model</th>
-                  <th className="px-4 py-2.5">Provider</th>
-                  <th className="px-4 py-2.5">Rating</th>
-                </tr>
-              </thead>
-              <tbody>
-                {chatPresets.map((p) => (
-                  <tr key={p.role} className="border-b border-surface-800 last:border-0">
-                    <td className="px-4 py-2.5 text-slate-200">
-                      {p.label}
-                      <span className="mt-0.5 block text-xs text-slate-500">{p.notes}</span>
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-slate-300">{p.model}</td>
-                    <td className="px-4 py-2.5 text-xs text-slate-400">{p.providerLabel}</td>
-                    <td className="px-4 py-2.5 text-xs">
-                      <Stars rating={p.rating} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {/* ── Web search ─────────────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <SectionTitle
+            icon={<Globe className="h-5 w-5" />}
+            description="Search providers are queried together when web search is on — every provider with a key contributes results. DuckDuckGo is free (no key needed) as the automatic fallback."
+          >
+            Web search
+          </SectionTitle>
+          <WebSearchToggle />
+          {SEARCH_PROVIDERS.map((meta) => (
+            <KeyCard key={meta.id} meta={meta} verifies={false} />
+          ))}
         </section>
-      )}
 
-      {retrievalPresets.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Recommended retrieval models
-          </h2>
-          <div className="card overflow-x-auto p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-surface-700 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5">Purpose</th>
-                  <th className="px-4 py-2.5">Model</th>
-                  <th className="px-4 py-2.5">Provider</th>
-                  <th className="px-4 py-2.5">Dims</th>
-                </tr>
-              </thead>
-              <tbody>
-                {retrievalPresets.map((p) => (
-                  <tr key={p.role} className="border-b border-surface-800 last:border-0">
-                    <td className="px-4 py-2.5 text-slate-200">
-                      {p.label}
-                      <span className="mt-0.5 block text-xs text-slate-500">{p.notes}</span>
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-slate-300">{p.model}</td>
-                    <td className="px-4 py-2.5 text-xs text-slate-400">{p.providerLabel}</td>
-                    <td className="px-4 py-2.5 text-xs text-slate-400">{p.dims ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* ── Super Memory ──────────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <SectionTitle
+            icon={<BrainCircuit className="h-5 w-5" />}
+            description="Persistent context that carries across every conversation. Memory is applied automatically — nothing to configure."
+          >
+            Super Memory
+          </SectionTitle>
+          <div className="grid gap-2.5 sm:grid-cols-3">
+            {[
+              { label: 'Semantic', note: 'Facts & knowledge recalled across chats' },
+              { label: 'Episodic', note: 'History of past interactions' },
+              { label: 'Procedural', note: 'Reusable patterns & workflows' },
+            ].map((m) => (
+              <div key={m.label} className="card p-3.5">
+                <StatusBadge label={m.label} tone="primary" />
+                <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">{m.note}</p>
+              </div>
+            ))}
           </div>
         </section>
-      )}
-    </div>
+
+        {/* ── Active RAG layers ──────────────────────────────────────────── */}
+        {models && (
+          <section className="space-y-3">
+            <SectionTitle
+              icon={<Layers className="h-5 w-5" />}
+              description="The pipeline stages configured for retrieval in the RAG service."
+            >
+              Active RAG layers
+            </SectionTitle>
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              <div className="card p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-muted">Embedding</p>
+                <p className="mt-1.5 truncate font-mono text-sm text-ink-primary">
+                  {models.embedding.provider}: {models.embedding.model}
+                </p>
+                <p className="mt-1 text-xs text-ink-muted">
+                  {models.embedding.dims} dims · fixed by the pgvector index
+                </p>
+              </div>
+              <div className="card p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-muted">Rerank</p>
+                <p className="mt-1.5 truncate font-mono text-sm text-ink-primary">
+                  {models.rerank.enabled ? `${models.rerank.provider}: ${models.rerank.model}` : 'Disabled'}
+                </p>
+                <p className="mt-1 text-xs text-ink-muted">Re-scores retrieval results before the LLM</p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── Recommended models ────────────────────────────────────────── */}
+        {chatPresets.length > 0 && (
+          <section className="space-y-3">
+            <SectionTitle icon={<Lock className="h-5 w-5" />}>
+              Recommended chat models
+            </SectionTitle>
+            <div className="overflow-hidden rounded-card border border-surface-800 bg-surface-900/40">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-surface-800 text-left text-[11px] font-semibold uppercase tracking-widest text-ink-muted">
+                      <th className="px-4 py-3">Role</th>
+                      <th className="px-4 py-3">Model</th>
+                      <th className="px-4 py-3">Provider</th>
+                      <th className="px-4 py-3">Rating</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chatPresets.map((p) => (
+                      <tr key={p.role} className="border-b border-surface-800/60 last:border-0 hover:bg-surface-850/40">
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-ink-primary">{p.label}</p>
+                          {p.notes && <p className="text-xs text-ink-muted">{p.notes}</p>}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-ink-secondary">{p.model}</td>
+                        <td className="px-4 py-3 text-xs text-ink-secondary">{p.providerLabel}</td>
+                        <td className="px-4 py-3">
+                          <Stars rating={p.rating} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {retrievalPresets.length > 0 && (
+          <section className="space-y-3">
+            <SectionTitle icon={<Layers className="h-5 w-5" />}>
+              Recommended retrieval models
+            </SectionTitle>
+            <div className="overflow-hidden rounded-card border border-surface-800 bg-surface-900/40">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-surface-800 text-left text-[11px] font-semibold uppercase tracking-widest text-ink-muted">
+                      <th className="px-4 py-3">Purpose</th>
+                      <th className="px-4 py-3">Model</th>
+                      <th className="px-4 py-3">Provider</th>
+                      <th className="px-4 py-3">Dims</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {retrievalPresets.map((p) => (
+                      <tr key={p.role} className="border-b border-surface-800/60 last:border-0 hover:bg-surface-850/40">
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-ink-primary">{p.label}</p>
+                          {p.notes && <p className="text-xs text-ink-muted">{p.notes}</p>}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-ink-secondary">{p.model}</td>
+                        <td className="px-4 py-3 text-xs text-ink-secondary">{p.providerLabel}</td>
+                        <td className="px-4 py-3 text-xs text-ink-muted">{p.dims ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
+      </div>
     </PageScroll>
   );
 }
