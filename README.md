@@ -129,6 +129,33 @@ Then: sign in → **Knowledge Base** → upload a PDF → wait for `ready` →
 | MinIO console | http://localhost:9001 |
 | NATS monitor | http://localhost:8222 |
 | Postgres | localhost:5432 |
+| OmniRoute gateway (optional) | http://localhost:20128 |
+
+### ⚡ Free OmniRoute gateway (optional)
+
+Smoke Monkey can chat with **100+ free, keyless models** through the
+local [OmniRoute](https://github.com/LongCat-dev/OmniRoute) OpenAI-compatible
+gateway — no API key required. When enabled it is also used as the
+**automatic fallback** if your OpenRouter or NVIDIA key runs out of
+credits, with an in-chat notice explaining why.
+
+```bash
+# 1. Start the OmniRoute gateway on port 20128 (see its README),
+#    or from Docker:  docker run -p 20128:20128 longcat/omniroute
+# 2. Enable the feature flag (default off) in both service env files:
+OMNIROUTE_ENABLED=true
+# 3. Sign in → Settings → "Free OmniRoute gateway" → enable
+# 4. In Chat → "Free mode" to browse the keyless models
+```
+
+- `OMNIROUTE_BASE_URL` defaults to `http://localhost:20128/v1`
+  (use `http://host.docker.internal:20128/v1` when the gateway runs in Docker
+  and the services run on the host).
+- The default model is `auto` — smart keyless routing. Free model namespaces
+  include `oc/…`, `felo/…`, `lc/…` and `groq/…` (e.g. `groq/llama-3.3-70b`).
+- See [`apps/rag-service/.env.example`](apps/rag-service/.env.example) and
+  [`apps/api-gateway/.env.example`](apps/api-gateway/.env.example) for the full
+  `OMNIROUTE_*` option list.
 
 ## 📚 Documentation
 
