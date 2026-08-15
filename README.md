@@ -134,14 +134,17 @@ Then: sign in → **Knowledge Base** → upload a PDF → wait for `ready` →
 ### ⚡ Free OmniRoute gateway (optional)
 
 Smoke Monkey can chat with **100+ free, keyless models** through the
-local [OmniRoute](https://github.com/LongCat-dev/OmniRoute) OpenAI-compatible
+local [OmniRoute](https://github.com/diegosouzapw/OmniRoute) OpenAI-compatible
 gateway — no API key required. When enabled it is also used as the
 **automatic fallback** if your OpenRouter or NVIDIA key runs out of
 credits, with an in-chat notice explaining why.
 
 ```bash
 # 1. Start the OmniRoute gateway on port 20128 (see its README),
-#    or from Docker:  docker run -p 20128:20128 longcat/omniroute
+#    or from Docker:
+#      docker run -d --name omniroute --restart unless-stopped \
+#        -p 20128:20128 -v omniroute-data:/app/data \
+#        diegosouzapw/omniroute:latest
 # 2. Enable the feature flag (default off) in both service env files:
 OMNIROUTE_ENABLED=true
 # 3. Sign in → Settings → "Free OmniRoute gateway" → enable
