@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from minio import Minio
 
 from src.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class MinioStorage:
@@ -45,5 +48,5 @@ class MinioStorage:
     def _remove(self, key: str) -> None:
         try:
             self._client.remove_object(self.bucket, key)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - deletion is best effort
+            logger.warning("failed to remove %s from MinIO: %s", key, exc)
