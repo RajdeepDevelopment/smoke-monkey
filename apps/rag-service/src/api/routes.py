@@ -20,6 +20,28 @@ router = APIRouter(prefix="/api/v1")
 # "auto"). Used to filter the live /v1/models list to the free tier.
 OMNIROUTE_FREE_NAMESPACES = {"oc", "felo", "lc", "groq"}
 
+# Model ids OpenRouter serves that are NOT usable as a chat model in this app
+# (embeddings, rerankers, moderation, image/audio/video generation, batch-only
+# variants and OpenRouter's "~latest" meta aliases). Used to filter the live
+# /v1/models feed into a clean chat-model list.
+NON_CHAT_MODEL_MARKERS = (
+    "embed",
+    "rerank",
+    "moderation",
+    "whisper",
+    "tts",
+    "sdxl",
+    "stable-diff",
+    "dall-e",
+    "flux",
+    "qwen-image",
+    "text-image",
+    "suno",
+    "music",
+    "video",
+    ":batch",
+)
+
 
 def _json_default(value: Any) -> Any:
     if hasattr(value, "model_dump"):
@@ -182,6 +204,58 @@ async def models() -> dict:
         "catalog": catalog_models,
         "presets": presets,
     }
+
+
+@router.get("/openrouter/models")
+async def openrouter_models() -> dict:
+    """Live chat-model list straight from the OpenRouter /v1/models feed.
+
+    Every provider behind OpenRouter (Google Gemini, Anthropic Claude, OpenAI
+    GPT, x-ai Grok, DeepSeek, Qwen, …) already speaks the same OpenAI-compatible
+    protocol, so all models stream through one standard in/out — this endpoint
+    just surfaces the full catalogue so the UI never needs a hand-maintained
+    list. Non-chat models (embeddings, rerankers, image/audio/video, batch-only
+    and ``~latest`` aliases) are filtered out. ``isFree`` is derived from the
+    advertised prompt price (0) or the ``:free`` suffix. When the API is
+    unreachable the UI falls back to the curated list from GET /models.
+    """
+    base = settings.openrouter_base_url.rstrip("/")
+    headers = {"content-type": "application/json"}
+    if settings.openrouter_api_key:
+        headers["authorization"] = f"Bearer {settings.openrouter_api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
+            resp = await client.get(f"{base}/models", headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:  # noqa: BLE001 - OpenRouter may simply be offline
+        logger.warning("OpenRouter /models unreachable: %s", exc)
+        return {"reachable": False, "models": []}
+    models: list[dict] = []
+    seen: set[str] = set()
+    for item in (data.get("data") or []):
+        model_id = str(item.get("id") or "").strip()
+        if not model_id or model_id.startswith("~") or model_id in seen:
+            continue
+        lowered = model_id.lower()
+        if any(marker in lowered for marker in NON_CHAT_MODEL_MARKERS):
+            continue
+        seen.add(model_id)
+        pricing = item.get("pricing") or {}
+        prompt_price = str(pricing.get("prompt") or "").strip()
+        is_free = model_id.endswith(":free") or prompt_price in ("0", "0.0", "0.00")
+        namespace = model_id.split("/", 1)[0].lower()
+        models.append(
+            {
+                "id": model_id,
+                "name": model_id,
+                "provider": namespace,
+                "isFree": is_free,
+            }
+        )
+        if len(models) >= 400:
+            break
+    return {"reachable": True, "models": models}
 
 
 @router.get("/omniroute/models")

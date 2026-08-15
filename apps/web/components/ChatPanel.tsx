@@ -163,6 +163,7 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [omnirouteServerEnabled, setOmnirouteServerEnabled] = useState(false);
   const [omnirouteModels, setOmnirouteModels] = useState<string[]>([]);
+  const [openrouterModels, setOpenrouterModels] = useState<string[]>([]);
   const [webSearchServerEnabled, setWebSearchServerEnabled] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
@@ -253,14 +254,30 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
       .catch(() => setOmnirouteModels([]));
   }, [provider]);
 
+  // The OpenRouter feed changes often (new families, :free drops, renames), so
+  // the picker also pulls the live 400+ list and merges it under the curated
+  // default models when the OpenRouter provider is selected.
+  useEffect(() => {
+    if (provider !== 'openrouter') return;
+    api
+      .fetchOpenRouterModels()
+      .then((res) => setOpenrouterModels(res.models.map((m) => m.id)))
+      .catch(() => setOpenrouterModels([]));
+  }, [provider]);
+
   const displayProviders = useMemo(() => {
-    if (!omnirouteMode || omnirouteModels.length === 0) return providers;
-    return providers.map((p) =>
-      p.id === 'omniroute'
-        ? { ...p, models: Array.from(new Set([...p.models, ...omnirouteModels])) }
-        : p,
-    );
-  }, [providers, omnirouteModels, omnirouteMode]);
+    if (omnirouteModels.length === 0 && openrouterModels.length === 0) return providers;
+    const live = (p: string) => {
+      if (p === 'omniroute') return omnirouteModels;
+      if (p === 'openrouter') return openrouterModels;
+      return [];
+    };
+    return providers.map((p) => {
+      const extra = live(p.id);
+      if (extra.length === 0) return p;
+      return { ...p, models: Array.from(new Set([...p.models, ...extra])) };
+    });
+  }, [providers, omnirouteModels, openrouterModels]);
 
   const toggleOmniRoute = useCallback(async () => {
     const turningOn = provider !== 'omniroute';

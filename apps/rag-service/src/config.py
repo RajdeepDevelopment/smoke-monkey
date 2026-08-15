@@ -49,14 +49,32 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     gemini_models: str = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite"
 
-    # OpenRouter (cloud) — chat models (change freely; `:free` variants need no credits)
+    # OpenRouter (cloud) — chat models (change freely; `:free` variants need no
+    # credits). ~50 most-used models across families (Google Gemini, Anthropic
+    # Claude, OpenAI GPT, x-ai Grok, DeepSeek, Qwen, Llama, Mistral, Kimi, GLM,
+    # Nemotron, …). The full dynamic list (400+) is served live from
+    # `GET /api/v1/openrouter/models`; this list is the curated default set.
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_chat_model: str = "nvidia/nemotron-3-nano-30b-a3b:free"
     openrouter_chat_models: str = (
-        "nvidia/nemotron-3-nano-30b-a3b:free,nvidia/nemotron-3-super-120b-a12b:free,"
-        "deepseek/deepseek-v4-flash,deepseek/deepseek-v4-pro,z-ai/glm-5.2,"
-        "nvidia/nemotron-3-ultra-550b-a55b"
+        "google/gemini-3.7-flash,google/gemini-3.6-flash,google/gemini-3.5-flash,"
+        "google/gemini-3.5-flash-lite,anthropic/claude-opus-5,anthropic/claude-opus-5-fast,"
+        "anthropic/claude-sonnet-5,anthropic/claude-fable-5,anthropic/claude-opus-4.8,"
+        "openai/gpt-5.6-luna-pro,openai/gpt-5.6-luna,openai/gpt-5.6-terra,openai/gpt-5.6-sol,"
+        "openai/gpt-chat-latest,x-ai/grok-4.6,x-ai/grok-4.5,x-ai/grok-4.3,"
+        "deepseek/deepseek-v4-pro,deepseek/deepseek-v4-flash,deepseek/deepseek-v3.2,"
+        "deepseek/deepseek-r1,qwen/qwen3.8-max,qwen/qwen3.7-flash,qwen/qwen3.6-35b-a3b,"
+        "qwen/qwen3.5-9b,meta-llama/llama-4-maverick,meta-llama/llama-4-scout,"
+        "meta-llama/llama-3.3-70b-instruct,mistralai/mistral-large-2512,"
+        "mistralai/mistral-small-3.2-24b-instruct,mistralai/codestral-2508,"
+        "moonshotai/kimi-k3,moonshotai/kimi-k2.6,moonshotai/kimi-k2.5,"
+        "z-ai/glm-5.2,z-ai/glm-4.7-flash,nvidia/nemotron-3-ultra-550b-a55b,"
+        "nvidia/nemotron-3-super-120b-a12b:free,nvidia/nemotron-3-nano-30b-a3b:free,"
+        "nvidia/nemotron-3.5-lightning:free,cohere/command-a,amazon/nova-pro-v1,"
+        "amazon/nova-2-lite-v1,minimax/minimax-m3,perplexity/sonar-pro,"
+        "bytedance-seed/seed-2-1-turbo,openrouter/auto,openrouter/fusion,"
+        "qwen/qwen3.8-2.4t-a95b,z-ai/glm-5v-turbo"
     )
 
     # OmniRoute (free, keyless) — local OpenAI-compatible gateway

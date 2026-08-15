@@ -134,6 +134,7 @@ export const api = {
   // models
   fetchModels: () => request<ModelsResponseDto>('/api/models'),
   fetchOmniRouteModels: () => request<OmniRouteModelsResponseDto>('/api/models/omniroute'),
+  fetchOpenRouterModels: () => request<OmniRouteModelsResponseDto>('/api/models/openrouter'),
 
   // playground (retrieval only, no generation)
   playgroundRetrieve: (payload: {

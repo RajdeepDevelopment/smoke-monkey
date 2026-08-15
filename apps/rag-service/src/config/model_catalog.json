@@ -44,6 +44,24 @@
       "notes": "Largest Nemotron 3 for maximum quality"
     },
     {
+      "role": "gemini",
+      "label": "Google Gemini",
+      "provider": "openrouter",
+      "model": "google/gemini-3.7-flash",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Flagship Gemini — strong all-round RAG over documents"
+    },
+    {
+      "role": "grok",
+      "label": "Grok (x-ai)",
+      "provider": "openrouter",
+      "model": "x-ai/grok-4.6",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Grok flagship for fast, sharp reasoning"
+    },
+    {
       "role": "efficient",
       "label": "Quality + efficiency",
       "provider": "nvidia",
