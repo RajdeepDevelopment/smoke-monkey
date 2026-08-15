@@ -498,10 +498,10 @@ async def test_memory_agent_index_exchange_links_relationship_edges():
 
     assert graph.users == ["c356c566-80c7-4583-a1ed-3de1a1242491"]
     assert any(n.id == "33333333-3333-3333-3333-333333333333" for n in graph.nodes)
-    assert ("user-node", "acme-node", "WORKS_AT") in [l[:3] for l in graph.links]
+    assert ("user-node", "acme-node", "WORKS_AT") in [link[:3] for link in graph.links]
     # The fact node is anchored to both endpoints.
-    assert ("33333333-3333-3333-3333-333333333333", "user-node", "RELATED_TO") in [l[:3] for l in graph.links]
-    assert ("33333333-3333-3333-3333-333333333333", "acme-node", "RELATED_TO") in [l[:3] for l in graph.links]
+    assert ("33333333-3333-3333-3333-333333333333", "user-node", "RELATED_TO") in [link[:3] for link in graph.links]
+    assert ("33333333-3333-3333-3333-333333333333", "acme-node", "RELATED_TO") in [link[:3] for link in graph.links]
 
 
 async def test_memory_agent_graph_context_skips_without_seeds():
