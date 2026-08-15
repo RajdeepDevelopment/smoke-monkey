@@ -69,6 +69,21 @@ _GREETING_RE = re.compile(
 
 _VALID_INTENTS = {"general", "knowledge", "memory", "web", "hybrid"}
 
+# A user asking the assistant to author something for them (an email, message,
+# letter…) is a task about their own content — never a live-web lookup, even
+# when a stray time word ("today is saturday…") sneaks in. This suppresses the
+# web upgrade for queries like "write an email to my manager", so we don't burn
+# web resources on personal conversations.
+AUTHORING_RE = re.compile(
+    r"\b(write|draft|compose|create|make|help me write)\b(?=.*\b(e-?mail|message|letter|memo|note|reply|invite|card)\b)",
+    re.IGNORECASE,
+)
+
+
+def is_authoring_task(query: str) -> bool:
+    """True when the user wants the assistant to write something for them."""
+    return bool(AUTHORING_RE.search(query))
+
 
 def has_web_signal(query: str) -> bool:
     """True when the query mentions something time-sensitive/current."""
@@ -151,14 +166,27 @@ def _normalize_plan(raw: dict[str, Any], query: str, history: list[dict[str, str
 
     # Heuristic backup: a time-sensitive/current-event query needs the web even
     # when a small router model classified it as general or knowledge. Personal
-    # questions and casual greetings are never silently sent to the web.
-    if not personal and should_use_web(query) and not plan.needs_web:
+    # questions, authoring tasks and casual greetings are never silently sent
+    # to the web.
+    if (
+        not personal
+        and not is_authoring_task(query)
+        and should_use_web(query)
+        and not plan.needs_web
+    ):
         plan.needs_web = True
         if plan.intent == "general":
             plan.intent = "web"
         elif plan.intent in ("knowledge", "hybrid"):
             plan.needs_knowledge = True
             plan.intent = "hybrid"
+
+    # A personal authoring task ("write an email to my manager…") must never
+    # hit the web, no matter what a small router model inferred.
+    if is_authoring_task(query):
+        plan.needs_web = False
+        if plan.intent == "web":
+            plan.intent = "general"
     return plan
 
 
@@ -167,7 +195,7 @@ def _fallback_plan(query: str, history: list[dict[str, str]]) -> RoutePlan:
     upgraded with a memory pass for personal questions and web for
     current-event questions."""
     personal = has_personal_signal(query, history)
-    web = should_use_web(query)
+    web = should_use_web(query) and not is_authoring_task(query)
     intent = "hybrid" if (personal or web) else "knowledge"
     return RoutePlan(
         intent=intent,

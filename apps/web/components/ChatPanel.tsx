@@ -161,8 +161,10 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
   const [savedKeys, setSavedKeys] = useState<UserKeyDto[]>([]);
   const [documents, setDocuments] = useState<DocumentDto[]>([]);
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
-  const [omnirouteEnabled, setOmnirouteEnabled] = useState(false);
+  const [omnirouteServerEnabled, setOmnirouteServerEnabled] = useState(false);
   const [omnirouteModels, setOmnirouteModels] = useState<string[]>([]);
+  const [webSearchServerEnabled, setWebSearchServerEnabled] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
   const lastSelectionRef = useRef<{ provider: string; model: string } | null>(null);
 
@@ -221,8 +223,16 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
       .catch(() => setProviders([]));
     api
       .fetchSettings()
-      .then((s) => setOmnirouteEnabled(s.omniroute.serverEnabled && s.omniroute.enabled))
-      .catch(() => setOmnirouteEnabled(false));
+      .then((s) => {
+        setOmnirouteServerEnabled(s.omniroute.serverEnabled);
+        setWebSearchServerEnabled(s.webSearch.serverEnabled);
+        setWebSearchEnabled(s.webSearch.serverEnabled && s.webSearch.enabled);
+      })
+      .catch(() => {
+        setOmnirouteServerEnabled(false);
+        setWebSearchServerEnabled(false);
+        setWebSearchEnabled(false);
+      });
     void refreshKeys();
     if (user) {
       api
@@ -252,22 +262,38 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
     );
   }, [providers, omnirouteModels, omnirouteMode]);
 
-  const toggleOmniRoute = useCallback(() => {
-    if (provider === 'omniroute') {
-      const prev = lastSelectionRef.current;
-      if (prev) {
-        setProvider(prev.provider);
-        setModel(prev.model);
+  const toggleOmniRoute = useCallback(async () => {
+    const turningOn = provider !== 'omniroute';
+    try {
+      if (turningOn) {
+        lastSelectionRef.current = { provider, model };
+        setProvider('omniroute');
+        setModel('auto');
+        await api.setOmniRouteEnabled(true);
+        toast.success('Free OmniRoute mode is on', 'Using 100+ free, keyless models — no API key needed.');
       } else {
-        setProvider(defaultProvider);
-        setModel('');
+        const prev = lastSelectionRef.current;
+        setProvider(prev?.provider ?? defaultProvider);
+        setModel(prev?.model ?? '');
+        await api.setOmniRouteEnabled(false);
+        toast.info('Free OmniRoute mode is off');
       }
-    } else {
-      lastSelectionRef.current = { provider, model };
-      setProvider('omniroute');
-      setModel('auto');
+    } catch (err) {
+      toast.error('Could not update OmniRoute', (err as Error).message);
     }
-  }, [provider, model, defaultProvider]);
+  }, [provider, model, defaultProvider, toast]);
+
+  const toggleWebSearch = useCallback(async () => {
+    const next = !webSearchEnabled;
+    try {
+      const res = await api.setWebSearchEnabled(next);
+      setWebSearchEnabled(res.webSearch.serverEnabled && res.webSearch.enabled);
+      if (next) toast.success('Web search is on', 'Answers can now include fresh web results.');
+      else toast.info('Web search is off');
+    } catch (err) {
+      toast.error('Could not update web search', (err as Error).message);
+    }
+  }, [webSearchEnabled, toast]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -553,16 +579,17 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
   if (authLoading) return <div className="p-8 text-sm text-ink-muted">Loading…</div>;
   if (!user) {
     return (
-      <div className="card mx-auto max-w-lg text-center">
-        <p className="mb-4 text-ink-secondary">Sign in to start chatting with your documents.</p>
-        <a href="/login" className="btn-primary">
-          Sign in
-        </a>
-      {/* ── Mobile bottom navigation (always available) ─────────────────── */}
-      <MobileBottomNav />
-    </div>
-  );
-}
+      <div className="relative flex h-full flex-col overflow-hidden">
+        <div className="card mx-auto my-auto max-w-lg text-center">
+          <p className="mb-4 text-ink-secondary">Sign in to start chatting with your documents.</p>
+          <a href="/login" className="btn-primary">
+            Sign in
+          </a>
+        </div>
+        <MobileBottomNav />
+      </div>
+    );
+  }
 
   const userName = user.name || user.email || 'Account';
   const activeTitle = conversations.find((c) => c.id === activeId)?.title ?? 'New chat';
@@ -595,9 +622,12 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
       presets={presets}
       onModelChange={handleModelChange}
       onAttach={attachFile}
-      omnirouteEnabled={omnirouteEnabled}
+      omnirouteServerEnabled={omnirouteServerEnabled}
       omnirouteMode={omnirouteMode}
-      onToggleOmniRoute={toggleOmniRoute}
+      onToggleOmniRoute={() => void toggleOmniRoute()}
+      webSearchServerEnabled={webSearchServerEnabled}
+      webSearchEnabled={webSearchEnabled}
+      onToggleWebSearch={() => void toggleWebSearch()}
     />
   );
 
@@ -800,6 +830,15 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
         )}
       </main>
 
+      {/* Backdrop blur behind the sources panel */}
+      <div
+        className={cn(
+          'absolute inset-0 z-30 hidden bg-black/45 backdrop-blur-[2px] transition-opacity duration-300 lg:block',
+          sourcesOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={() => setSourcesOpen(false)}
+      />
+
       {/* ── Desktop sources panel (overlay from right) ──────────────────── */}
       <div
         className={cn(
@@ -844,6 +883,9 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
           />
         </SheetContent>
       </Sheet>
+
+      {/* ── Mobile bottom navigation (always available) ─────────────────── */}
+      <MobileBottomNav />
     </div>
   );
 }

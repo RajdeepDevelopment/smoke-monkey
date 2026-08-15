@@ -71,7 +71,7 @@ export function ResponsivePopover({
         sideOffset={sideOffset}
         collisionPadding={16}
         avoidCollisions
-        className={cn('p-3', className)}
+        className={cn('w-80 max-w-[calc(100vw-24px)] p-3', className)}
       >
         {children}
       </PopoverContent>

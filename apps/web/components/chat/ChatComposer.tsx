@@ -7,6 +7,7 @@ import {
   Book,
   Check,
   ExternalLink,
+  Globe,
   Key,
   Loader2,
   Paperclip,
@@ -41,12 +42,18 @@ interface ChatComposerProps {
   onModelChange: (provider: string, model: string) => void;
   onAttach: (file: File) => void;
   placeholder?: string;
-  /** Free OmniRoute gateway is enabled (server + user opt-in). */
-  omnirouteEnabled?: boolean;
+  /** OmniRoute server gate is enabled (users may opt in from here). */
+  omnirouteServerEnabled?: boolean;
   /** Whether the composer is currently in free OmniRoute mode. */
   omnirouteMode?: boolean;
-  /** Toggle the free OmniRoute mode on/off. */
+  /** Toggle the free OmniRoute mode (persists the per-user setting). */
   onToggleOmniRoute?: () => void;
+  /** Web search server gate is enabled (users may opt in from here). */
+  webSearchServerEnabled?: boolean;
+  /** Whether the user has enabled web search. */
+  webSearchEnabled?: boolean;
+  /** Toggle web search (persists the per-user setting). */
+  onToggleWebSearch?: () => void;
 }
 
 const KEY_PROVIDERS = [
@@ -73,7 +80,7 @@ function ScopePicker({
 }) {
   const all = selectedDocIds.size === 0;
   return (
-    <div className="w-full sm:w-80">
+    <div className="w-full">
       <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
         Knowledge Base
       </p>
@@ -172,7 +179,7 @@ function KeyManager({
   };
 
   return (
-    <div className="w-full sm:w-80">
+    <div className="w-full">
       <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
         API keys
       </p>
@@ -276,9 +283,12 @@ export function ChatComposer({
   onModelChange,
   onAttach,
   placeholder,
-  omnirouteEnabled,
+  omnirouteServerEnabled,
   omnirouteMode,
   onToggleOmniRoute,
+  webSearchServerEnabled,
+  webSearchEnabled,
+  onToggleWebSearch,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const needsKey = CHAT_KEY_PROVIDERS.has(provider) && !savedKeys.some((k) => k.provider === provider);
@@ -371,7 +381,7 @@ export function ChatComposer({
           <KeyManager savedKeys={savedKeys} onChanged={onKeysChanged} />
         </ResponsivePopover>
 
-        {omnirouteEnabled && (
+        {omnirouteServerEnabled && (
           <button
             type="button"
             onClick={onToggleOmniRoute}
@@ -388,9 +398,33 @@ export function ChatComposer({
             }
           >
             <Zap className="h-4 w-4" />
-            <span className="hidden sm:inline">Free mode</span>
+            <span className="hidden sm:inline">{omnirouteMode ? 'Free mode' : 'Enable free mode'}</span>
             {omnirouteMode && (
               <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold text-black">ON</span>
+            )}
+          </button>
+        )}
+
+        {webSearchServerEnabled && (
+          <button
+            type="button"
+            onClick={onToggleWebSearch}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+              webSearchEnabled
+                ? 'bg-primary-subtle text-white hover:bg-primary-subtle/80'
+                : 'text-ink-secondary hover:bg-surface-800 hover:text-white',
+            )}
+            title={
+              webSearchEnabled
+                ? 'Web search is on — click to turn off'
+                : 'Turn on web search for fresh/live answers'
+            }
+          >
+            <Globe className="h-4 w-4" />
+            <span className="hidden sm:inline">Web Search</span>
+            {webSearchEnabled && (
+              <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-black">ON</span>
             )}
           </button>
         )}
