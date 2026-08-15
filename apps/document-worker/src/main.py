@@ -142,8 +142,8 @@ async def process_job(js: JetStreamContext, msg: Msg, job: IngestJob, redis: Red
                     }
                 ).encode(),
             )
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 - best effort failure notification
+            logger.warning("failed to publish failure status for document %s: %s", job.document_id, exc)
         metadata = getattr(msg, "metadata", None)
         if metadata is not None and metadata.num_delivered >= 4:
             await msg.term()

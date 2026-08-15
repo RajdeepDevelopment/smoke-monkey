@@ -31,6 +31,7 @@ async def maybe_ocr(page, page_number: int, ocr_enabled: bool) -> ParsedPage:
         logger.info("page %d has little embedded text, running OCR", page_number)
         try:
             text = await ocr_page_image(page)
-        except Exception as exc:  # pragma: no cover - tesseract may be missing
+        except Exception as exc:  # noqa: BLE001 - OCR is best effort; a missing Tesseract must not fail the job
+            # pragma: no cover - tesseract may be missing
             logger.warning("OCR failed on page %d: %s", page_number, exc)
     return ParsedPage(number=page_number, text=text)

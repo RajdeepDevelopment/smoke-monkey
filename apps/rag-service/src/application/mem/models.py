@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class MemoryType(str, Enum):
+class MemoryType(StrEnum):
     EPISODIC = "episodic"  # what happened in past conversations/events
     SEMANTIC = "semantic"  # durable facts/preferences/projects/identity
     PROCEDURAL = "procedural"  # how the user does things (workflows, habits)
@@ -27,7 +27,7 @@ class MemoryType(str, Enum):
         return cls.SEMANTIC
 
 
-class MemoryPriority(str, Enum):
+class MemoryPriority(StrEnum):
     CRITICAL = "critical"  # importance >= 0.8 — identity/relationships/contacts
     IMPORTANT = "important"  # importance >= 0.6
     NORMAL = "normal"  # importance >= 0.4
@@ -47,7 +47,7 @@ class MemoryPriority(str, Enum):
         return cls.TRANSIENT
 
 
-class MemorySource(str, Enum):
+class MemorySource(StrEnum):
     USER = "user"
     SYSTEM = "system"
     CONVERSATION = "conversation"
