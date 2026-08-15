@@ -58,6 +58,9 @@ interface ChatComposerProps {
 
 const KEY_PROVIDERS = [
   { id: 'openrouter', label: 'OpenRouter', group: 'Chat models', placeholder: 'sk-or-v1-…', getKeyUrl: 'https://openrouter.ai/keys' },
+  { id: 'openai', label: 'OpenAI — ChatGPT', group: 'Chat models', placeholder: 'sk-…', getKeyUrl: 'https://platform.openai.com/api-keys' },
+  { id: 'xai', label: 'xAI — Grok', group: 'Chat models', placeholder: 'xai-…', getKeyUrl: 'https://console.x.ai' },
+  { id: 'gemini', label: 'Google Gemini', group: 'Chat models', placeholder: 'AIza… (39-char)', getKeyUrl: 'https://aistudio.google.com/apikey' },
   { id: 'nvidia', label: 'NVIDIA NIM', group: 'Chat models', placeholder: 'nvapi-…', getKeyUrl: 'https://build.nvidia.com' },
   { id: 'tavily', label: 'Tavily', group: 'Web search', placeholder: 'tvly-…', getKeyUrl: 'https://app.tavily.com' },
   { id: 'brave', label: 'Brave Search', group: 'Web search', placeholder: 'BSA…', getKeyUrl: 'https://brave.com/search/api/' },
@@ -65,7 +68,7 @@ const KEY_PROVIDERS = [
 ];
 
 /** Provider whose chat requests need a saved user key. */
-const CHAT_KEY_PROVIDERS = new Set(['openrouter', 'nvidia']);
+const CHAT_KEY_PROVIDERS = new Set(['openrouter', 'nvidia', 'openai', 'xai', 'gemini']);
 
 function ScopePicker({
   documents,

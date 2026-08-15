@@ -11,16 +11,22 @@ import { ApiKeyCryptoService } from './api-key-crypto.service';
 import {
   PROVIDER_BING,
   PROVIDER_BRAVE,
+  PROVIDER_GEMINI,
   PROVIDER_GOOGLE,
   PROVIDER_NVIDIA,
+  PROVIDER_OPENAI,
   PROVIDER_OPENROUTER,
   PROVIDER_TAVILY,
+  PROVIDER_XAI,
   SUPPORTED_PROVIDERS,
   UserApiKey,
 } from './user-api-key.entity';
 
 const OPENROUTER_AUTH_URL = 'https://openrouter.ai/api/v1/auth/key';
 const NVIDIA_CHAT_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+const OPENAI_MODELS_URL = 'https://api.openai.com/v1/models';
+const XAI_MODELS_URL = 'https://api.x.ai/v1/models';
+const GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 export interface UserKeySummary {
   provider: string;
@@ -159,6 +165,21 @@ export class ApiKeysService {
         'invalid NVIDIA key — it should start with "nvapi-". Get one at build.nvidia.com',
       );
     }
+    if (provider === PROVIDER_OPENAI && !/^sk-(proj-)?[A-Za-z0-9_-]{20,}$/.test(apiKey)) {
+      throw new BadRequestException(
+        'invalid OpenAI key — it should start with "sk-". Get one at platform.openai.com/api-keys',
+      );
+    }
+    if (provider === PROVIDER_XAI && !/^xai-[A-Za-z0-9_-]{16,}$/.test(apiKey)) {
+      throw new BadRequestException(
+        'invalid xAI key — it should start with "xai-". Get one at console.x.ai',
+      );
+    }
+    if (provider === PROVIDER_GEMINI && !/^[A-Za-z0-9]{20,50}$/.test(apiKey)) {
+      throw new BadRequestException(
+        'invalid Gemini key — it is a ~39-character alphanumeric string. Get one free at aistudio.google.com/apikey',
+      );
+    }
     if (provider === PROVIDER_TAVILY && !apiKey.startsWith('tvly-')) {
       throw new BadRequestException(
         'invalid Tavily key — it should start with "tvly-". Get one at app.tavily.com',
@@ -195,7 +216,41 @@ export class ApiKeysService {
     if (provider === PROVIDER_NVIDIA) {
       return this.validateNvidiaKey(apiKey);
     }
+    if (provider === PROVIDER_OPENAI) {
+      return this.validateOpenAiCompatKey(OPENAI_MODELS_URL, apiKey, 'OpenAI');
+    }
+    if (provider === PROVIDER_XAI) {
+      return this.validateOpenAiCompatKey(XAI_MODELS_URL, apiKey, 'xAI');
+    }
+    if (provider === PROVIDER_GEMINI) {
+      return this.validateGeminiKey(apiKey);
+    }
     return null;
+  }
+
+  /** Live-check an OpenAI-compatible provider key against its /v1/models feed. */
+  private async validateOpenAiCompatKey(
+    url: string,
+    apiKey: string,
+    label: string,
+  ): Promise<OpenRouterKeyInfo | null> {
+    try {
+      const res = await fetch(url, { headers: { authorization: `Bearer ${apiKey}` } });
+      if (!res.ok) return null;
+      return { label, isFreeTier: false, limit: null, usage: null, remaining: null, rateLimited: false };
+    } catch {
+      return null;
+    }
+  }
+
+  private async validateGeminiKey(apiKey: string): Promise<OpenRouterKeyInfo | null> {
+    try {
+      const res = await fetch(`${GEMINI_MODELS_URL}?key=${encodeURIComponent(apiKey)}`);
+      if (!res.ok) return null;
+      return { label: 'Google AI Studio', isFreeTier: true, limit: null, usage: null, remaining: null, rateLimited: false };
+    } catch {
+      return null;
+    }
   }
 
   private async validateOpenRouterKey(apiKey: string): Promise<OpenRouterKeyInfo | null> {

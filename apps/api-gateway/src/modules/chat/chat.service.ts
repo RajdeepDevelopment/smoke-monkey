@@ -45,7 +45,7 @@ export class ChatService {
     // Resolve the API key for cloud providers: the user's own key wins,
     // otherwise fall back to the server default. Keys are read from Redis
     // (populated on save) so lookups stay fast and don't hit Postgres.
-    const CLOUD_PROVIDERS = ['openrouter', 'nvidia'];
+    const CLOUD_PROVIDERS = ['openrouter', 'nvidia', 'openai', 'xai', 'gemini'];
     const isCloud = CLOUD_PROVIDERS.includes(dto.provider);
     let apiKey: string | null = null;
     if (isCloud) {
@@ -56,15 +56,27 @@ export class ChatService {
         apiKey = null;
       }
       const serverEnv =
-        dto.provider === 'nvidia' ? process.env.NVIDIA_API_KEY : process.env.OPENROUTER_API_KEY;
+        dto.provider === 'nvidia'
+          ? process.env.NVIDIA_API_KEY
+          : dto.provider === 'openai'
+            ? process.env.OPENAI_API_KEY
+            : dto.provider === 'xai'
+              ? process.env.XAI_API_KEY
+              : dto.provider === 'gemini'
+                ? process.env.GEMINI_API_KEY
+                : process.env.OPENROUTER_API_KEY;
       if (!apiKey && !serverEnv) {
-        write({
-          type: 'error',
-          message:
-            dto.provider === 'nvidia'
-              ? 'No NVIDIA key configured. Add one in Settings (recommended) or ask the administrator to set NVIDIA_API_KEY.'
-              : 'No OpenRouter key configured. Add one in Settings (recommended) or ask the administrator to set OPENROUTER_API_KEY.',
-        });
+        const noKeyMsg =
+          dto.provider === 'nvidia'
+            ? 'No NVIDIA key configured. Add one in Settings (recommended) or ask the administrator to set NVIDIA_API_KEY.'
+            : dto.provider === 'openai'
+              ? 'No OpenAI key configured. Add one in Settings → API keys (recommended) or ask the administrator to set OPENAI_API_KEY.'
+              : dto.provider === 'xai'
+                ? 'No xAI key configured. Add one in Settings → API keys (recommended) or ask the administrator to set XAI_API_KEY.'
+                : dto.provider === 'gemini'
+                  ? 'No Gemini key configured. Add one free in Settings → API keys (aistudio.google.com/apikey) or ask the administrator to set GEMINI_API_KEY.'
+                  : 'No OpenRouter key configured. Add one in Settings (recommended) or ask the administrator to set OPENROUTER_API_KEY.';
+        write({ type: 'error', message: noKeyMsg });
         res.end();
         return;
       }

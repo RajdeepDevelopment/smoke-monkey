@@ -46,8 +46,28 @@ class Settings(BaseSettings):
     # "gemini" (Google AI Studio free tier)
     llm_provider: str = "ollama"
     gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_model: str = "gemini-3.5-flash"
-    gemini_models: str = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite"
+    gemini_models: str = (
+        "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite"
+    )
+
+    # OpenAI (ChatGPT) — users can bring their own key; OPENAI_API_KEY is the
+    # server-level default.
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_chat_model: str = "gpt-chat-latest"
+    openai_chat_models: str = (
+        "gpt-5.6-luna-pro,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol,gpt-chat-latest,"
+        "gpt-4.1,gpt-4o-mini"
+    )
+
+    # xAI (Grok) — users can bring their own key; XAI_API_KEY is the
+    # server-level default.
+    xai_api_key: str = ""
+    xai_base_url: str = "https://api.x.ai/v1"
+    xai_chat_model: str = "grok-4.6"
+    xai_chat_models: str = "grok-4.6,grok-4.5,grok-4.3"
 
     # OpenRouter (cloud) — chat models (change freely; `:free` variants need no
     # credits). ~50 most-used models across families (Google Gemini, Anthropic

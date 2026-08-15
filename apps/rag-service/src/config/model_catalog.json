@@ -2,6 +2,8 @@
   "providers": {
     "openrouter": { "label": "OpenRouter" },
     "nvidia": { "label": "NVIDIA NIM" },
+    "openai": { "label": "OpenAI — ChatGPT" },
+    "xai": { "label": "xAI — Grok" },
     "ollama": { "label": "Local (Ollama)" },
     "gemini": { "label": "Google Gemini" },
     "omniroute": { "label": "OmniRoute (free, keyless)" }
@@ -60,6 +62,33 @@
       "rating": 5,
       "isFree": false,
       "notes": "Grok flagship for fast, sharp reasoning"
+    },
+    {
+      "role": "gpt",
+      "label": "ChatGPT (OpenAI)",
+      "provider": "openai",
+      "model": "gpt-5.6-luna",
+      "rating": 5,
+      "isFree": false,
+      "notes": "OpenAI GPT flagship — bring your own OpenAI key"
+    },
+    {
+      "role": "grok-direct",
+      "label": "Grok (xAI)",
+      "provider": "xai",
+      "model": "grok-4.6",
+      "rating": 5,
+      "isFree": false,
+      "notes": "Direct xAI endpoint — bring your own xAI key"
+    },
+    {
+      "role": "gemini-direct",
+      "label": "Gemini (Google)",
+      "provider": "gemini",
+      "model": "gemini-3.7-flash",
+      "rating": 5,
+      "isFree": true,
+      "notes": "Direct Google AI Studio — free tier with your own key"
     },
     {
       "role": "efficient",

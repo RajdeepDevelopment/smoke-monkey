@@ -258,6 +258,12 @@ def build_chat_llm(
     ollama_embed_dims: int,
     gemini_api_key: str,
     gemini_model: str,
+    openai_api_key: str = "",
+    openai_model: str | None = None,
+    openai_base_url: str = "",
+    xai_api_key: str = "",
+    xai_model: str | None = None,
+    xai_base_url: str = "",
     openrouter_api_key: str = "",
     openrouter_model: str | None = None,
     openrouter_base_url: str = "",
@@ -315,9 +321,36 @@ def build_chat_llm(
             rerank_style="nvidia",
         )
     if provider == "gemini":
-        if not gemini_api_key:
-            raise ValueError("LLM provider is 'gemini' but GEMINI_API_KEY is not set")
-        return GeminiClient(api_key=gemini_api_key, model=model or gemini_model)
+        key = api_key or gemini_api_key
+        if not key:
+            raise ValueError("no Gemini API key available for the request (GEMINI_API_KEY or a saved user key)")
+        return GeminiClient(api_key=key, model=model or gemini_model)
+    if provider == "openai":
+        from src.generation.openrouter import OpenRouterClient
+
+        key = api_key or openai_api_key
+        if not key:
+            raise ValueError("no OpenAI API key available for the request")
+        return OpenRouterClient(
+            api_key=key,
+            model=model or openai_model or "",
+            provider_id="openai",
+            name="OpenAI",
+            base_url=openai_base_url or settings.openai_base_url,
+        )
+    if provider == "xai":
+        from src.generation.openrouter import OpenRouterClient
+
+        key = api_key or xai_api_key
+        if not key:
+            raise ValueError("no xAI API key available for the request")
+        return OpenRouterClient(
+            api_key=key,
+            model=model or xai_model or "",
+            provider_id="xai",
+            name="xAI Grok",
+            base_url=xai_base_url or settings.xai_base_url,
+        )
     if provider == "ollama":
         return OllamaClient(
             base_url=ollama_base_url,
@@ -325,4 +358,4 @@ def build_chat_llm(
             embed_model=ollama_embed_model,
             embed_dims=ollama_embed_dims,
         )
-    raise ValueError(f"unknown LLM provider: {provider} (expected 'ollama', 'openrouter', 'nvidia', 'gemini' or 'omniroute')")
+    raise ValueError(f"unknown LLM provider: {provider} (expected 'ollama', 'openrouter', 'nvidia', 'openai', 'xai', 'gemini' or 'omniroute')")

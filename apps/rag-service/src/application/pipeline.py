@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 PARENT_QUERY = "SELECT id, content FROM chunks WHERE id = ANY($1::uuid[])"
 
-CLOUD_PROVIDERS = ("openrouter", "nvidia")
+CLOUD_PROVIDERS = ("openrouter", "nvidia", "openai", "xai", "gemini")
 
 EMBED_CACHE_PREFIX = "rag:embed:v1"
 RETRIEVAL_CACHE_PREFIX = "rag:retr:v1"
@@ -69,6 +69,12 @@ def _server_default_key(provider: str) -> str:
         return settings.openrouter_api_key
     if provider == "nvidia":
         return settings.nvidia_api_key
+    if provider == "openai":
+        return settings.openai_api_key
+    if provider == "xai":
+        return settings.xai_api_key
+    if provider == "gemini":
+        return settings.gemini_api_key
     return ""
 
 
@@ -170,6 +176,10 @@ class QueryPipeline:
                 ollama_embed_dims=settings.ollama_embed_dims,
                 gemini_api_key=settings.gemini_api_key,
                 gemini_model=settings.gemini_model,
+                openai_api_key=settings.openai_api_key,
+                openai_model=settings.openai_chat_model,
+                xai_api_key=settings.xai_api_key,
+                xai_model=settings.xai_chat_model,
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_model=settings.openrouter_chat_model,
                 nvidia_api_key=settings.nvidia_api_key,

@@ -99,14 +99,30 @@ async def models() -> dict:
             "models": [settings.ollama_chat_model],
         }
     ]
-    if settings.gemini_api_key:
-        providers.append(
-            {
-                "id": "gemini",
-                "label": "Google Gemini (cloud)",
-                "models": [m.strip() for m in settings.gemini_models.split(",") if m.strip()],
-            }
-        )
+    providers.append(
+        {
+            "id": "openai",
+            "label": "OpenAI — ChatGPT",
+            "models": [m.strip() for m in settings.openai_chat_models.split(",") if m.strip()]
+            or [settings.openai_chat_model],
+        }
+    )
+    providers.append(
+        {
+            "id": "xai",
+            "label": "xAI — Grok",
+            "models": [m.strip() for m in settings.xai_chat_models.split(",") if m.strip()]
+            or [settings.xai_chat_model],
+        }
+    )
+    providers.append(
+        {
+            "id": "gemini",
+            "label": "Google Gemini",
+            "models": [m.strip() for m in settings.gemini_models.split(",") if m.strip()]
+            or [settings.gemini_model],
+        }
+    )
     or_models = [m.strip() for m in settings.openrouter_chat_models.split(",") if m.strip()] or [
         settings.openrouter_chat_model
     ]

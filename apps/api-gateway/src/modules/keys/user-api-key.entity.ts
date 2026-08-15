@@ -2,6 +2,9 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Update
 
 export const PROVIDER_OPENROUTER = 'openrouter';
 export const PROVIDER_NVIDIA = 'nvidia';
+export const PROVIDER_OPENAI = 'openai';
+export const PROVIDER_XAI = 'xai';
+export const PROVIDER_GEMINI = 'gemini';
 export const PROVIDER_TAVILY = 'tavily';
 export const PROVIDER_GOOGLE = 'google';
 export const PROVIDER_BRAVE = 'brave';
@@ -10,6 +13,9 @@ export const PROVIDER_BING = 'bing';
 export enum ApiKeyProvider {
   OpenRouter = 'openrouter',
   Nvidia = 'nvidia',
+  OpenAI = 'openai',
+  XAI = 'xai',
+  Gemini = 'gemini',
   Tavily = 'tavily',
   Google = 'google',
   Brave = 'brave',
