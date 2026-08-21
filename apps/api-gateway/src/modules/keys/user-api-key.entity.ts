@@ -5,6 +5,7 @@ export const PROVIDER_NVIDIA = 'nvidia';
 export const PROVIDER_OPENAI = 'openai';
 export const PROVIDER_XAI = 'xai';
 export const PROVIDER_GEMINI = 'gemini';
+export const PROVIDER_OPENCODE = 'opencode';
 export const PROVIDER_TAVILY = 'tavily';
 export const PROVIDER_GOOGLE = 'google';
 export const PROVIDER_BRAVE = 'brave';
@@ -16,6 +17,7 @@ export enum ApiKeyProvider {
   OpenAI = 'openai',
   XAI = 'xai',
   Gemini = 'gemini',
+  Opencode = 'opencode',
   Tavily = 'tavily',
   Google = 'google',
   Brave = 'brave',

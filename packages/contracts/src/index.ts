@@ -44,6 +44,8 @@ export interface CitationDto {
   page?: number | null;
   text: string;
   score: number;
+  /** Optional source URL (web citations carry one; knowledge chunks don't). */
+  url?: string | null;
 }
 
 /** One live web result surfaced alongside an answer (from Tavily/Brave/Bing/DDG). */

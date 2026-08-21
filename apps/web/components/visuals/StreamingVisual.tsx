@@ -88,7 +88,7 @@ export function StreamingVisual({ code }: { code: string }) {
         <iframe
           ref={iframeRef}
           title="streaming-preview"
-          sandbox="allow-same-origin allow-scripts allow-modals allow-forms allow-popups"
+          sandbox="allow-same-origin allow-scripts allow-modals allow-forms allow-popups allow-downloads allow-pointer-lock"
           className="block w-full border-0"
           style={{ height: `${height}px` }}
         />

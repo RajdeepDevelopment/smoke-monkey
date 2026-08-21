@@ -25,6 +25,7 @@ import { useAuth } from './AuthProvider';
 import { useToast } from './Toast';
 import { BrandIcon } from './BrandIcon';
 import { NAV } from './Sidebar';
+import { useIsMobile } from '../lib/hooks';
 import { MobileDrawer, MobileBottomNav } from './MobileNavigation';
 import { MessageBubble, type BubbleMessage } from './MessageBubble';
 import { ChatComposer } from './chat/ChatComposer';
@@ -173,6 +174,8 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
   const [sourceCitations, setSourceCitations] = useState<CitationDto[]>([]);
   const [sourceWebSources, setSourceWebSources] = useState<WebSourceDto[]>([]);
   const [activeSourceIndex, setActiveSourceIndex] = useState<number | null>(null);
+
+  const isMobile = useIsMobile();
 
   const abortRef = useRef<AbortController | null>(null);
   const initRef = useRef(false);
@@ -418,6 +421,18 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
     patchStreaming({ content: streamBufferRef.current });
     lastStreamFlushRef.current = performance.now();
   }, [patchStreaming]);
+
+  // Guarantee progressive rendering even when the upstream delivers the whole
+  // stream in one or two network bursts (common on localhost / fast models):
+  // the arrival-throttle in `send` only fires on chunk events, so without this
+  // periodic flush a fast or short answer appears all at once instead of
+  // token-by-token. `patchStreaming` no-ops when content is unchanged, so idle
+  // ticks cost nothing.
+  useEffect(() => {
+    if (!streaming) return;
+    const interval = setInterval(flushStream, 50);
+    return () => clearInterval(interval);
+  }, [streaming, flushStream]);
 
   const pushStage = useCallback((label: string) => {
     setStages((prev) => {
@@ -667,7 +682,7 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
   ) : null;
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden lg:flex-row">
+    <div className="relative flex h-full w-full flex-col overflow-hidden lg:flex-row">
       {/* ── Desktop conversation column (lg+) ─────────────────────────────── */}
       <aside className="hidden w-72 shrink-0 flex-col border-r border-surface-800 bg-surface-950 lg:flex">
         <div className="flex items-center gap-2.5 px-4 pb-2 pt-4">
@@ -720,9 +735,9 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
       </aside>
 
       {/* ── Chat workspace ───────────────────────────────────────────────── */}
-      <main className="relative flex min-w-0 flex-1 flex-col bg-bg">
+      <main className="relative flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden bg-bg">
         {/* Mobile top bar */}
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-surface-800 bg-surface-950/80 px-2.5 backdrop-blur lg:hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-1.5 border-b border-surface-800 bg-surface-950/80 px-2.5 backdrop-blur lg:hidden">
           <MobileDrawer
             recentChats={conversations}
             activeChatId={activeId}
@@ -731,7 +746,7 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
             trigger={
               <button
                 type="button"
-                className="flex h-10 w-10 min-h-10 min-w-10 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-surface-800 hover:text-white"
+                className="flex h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-surface-800 hover:text-white"
                 aria-label="Open navigation"
               >
                 <Menu className="h-5 w-5" />
@@ -739,28 +754,28 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
             }
           />
 
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
             <BrandIcon size={24} className="shrink-0 rounded-md" />
             <span className="truncate text-sm font-semibold text-white">{isFresh ? 'New chat' : activeTitle}</span>
           </div>
 
-          <span className="flex-1" />
+          <div className="flex shrink-0 items-center gap-1">
+            {sourcesButton && <div className="shrink-0 lg:hidden">{sourcesButton}</div>}
+            <div className="shrink-0">
+              <MemoryIndicator />
+            </div>
 
-          {sourcesButton && <div className="shrink-0 lg:hidden">{sourcesButton}</div>}
-          <div className="shrink-0">
-            <MemoryIndicator />
+            <button
+              type="button"
+              onClick={newChat}
+              disabled={streaming}
+              className="flex h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-surface-800 hover:text-white disabled:opacity-40"
+              aria-label="New chat"
+              title="New chat"
+            >
+              <Plus className="h-5 w-5" />
+            </button>
           </div>
-
-          <button
-            type="button"
-            onClick={newChat}
-            disabled={streaming}
-            className="flex h-10 w-10 min-h-10 min-w-10 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-surface-800 hover:text-white disabled:opacity-40"
-            aria-label="New chat"
-            title="New chat"
-          >
-            <Plus className="h-5 w-5" />
-          </button>
         </header>
 
         {/* Desktop header */}
@@ -792,13 +807,13 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
 
         {isFresh ? (
           /* ── Fresh chat ───────────────────────────────────────────────── */
-          <div className="flex flex-1 flex-col items-center justify-center gap-7 overflow-y-auto px-4 pb-10 pt-8 sm:px-6">
+          <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-6 overflow-y-auto px-4 pb-8 pt-6 sm:px-6">
             <div className="fade-in text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15">
-                <BrandIcon size={36} />
+              <div className="mx-auto mb-3.5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 sm:h-14 sm:w-14">
+                <BrandIcon size={32} />
               </div>
-              <h2 className="text-xl font-semibold text-white sm:text-2xl">Smoke Monkey AI</h2>
-              <p className="mt-1.5 text-sm text-ink-muted">How can I help you today?</p>
+              <h2 className="text-lg font-semibold text-white sm:text-2xl">Smoke Monkey AI</h2>
+              <p className="mt-1 text-xs text-ink-muted sm:text-sm">How can I help you today?</p>
             </div>
 
             <div className="w-full max-w-3xl">{composer}</div>
@@ -819,9 +834,9 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
           </div>
         ) : (
           /* ── Active conversation ──────────────────────────────────────── */
-          <>
-            <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 scrollbar-thin">
-              <div className="mx-auto max-w-3xl space-y-7">
+          <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+            <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto px-3.5 py-4 sm:px-6 scrollbar-thin">
+              <div className="mx-auto max-w-3xl space-y-6 pb-6">
                 {messages.map((m) => (
                   <MessageBubble
                     key={m.id}
@@ -835,15 +850,15 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
             </div>
 
             {error && (
-              <div className="border-t border-error/30 bg-error/10 px-4 py-2 text-sm text-red-300 sm:px-6">
+              <div className="shrink-0 border-t border-error/30 bg-error/10 px-4 py-2 text-sm text-red-300 sm:px-6">
                 {error}
               </div>
             )}
 
-            <div className="shrink-0 px-3 pb-3 pt-2 sm:px-6 sm:pb-5">
+            <div className="shrink-0 px-2.5 pb-2.5 pt-1.5 sm:px-6 sm:pb-5">
               <div className="mx-auto max-w-3xl">{composer}</div>
             </div>
-          </>
+          </div>
         )}
       </main>
 
@@ -886,7 +901,7 @@ export function ChatPanel({ initialConversationId }: { initialConversationId?: s
       </div>
 
       {/* ── Mobile sources sheet ────────────────────────────────────────── */}
-      <Sheet open={sourcesOpen} onOpenChange={setSourcesOpen}>
+      <Sheet open={sourcesOpen && isMobile} onOpenChange={setSourcesOpen}>
         <SheetContent side="bottom" className="flex max-h-[70vh] flex-col gap-0 p-0 lg:hidden">
           <SheetHeader className="border-b border-surface-800 px-4 py-3">
             <SheetTitle className="text-sm">Sources</SheetTitle>

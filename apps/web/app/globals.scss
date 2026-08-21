@@ -274,6 +274,31 @@
   }
 }
 
+// ── Safe-area helpers for notched / home-indicator devices ──────────
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+  .mt-safe {
+    margin-top: env(safe-area-inset-top);
+  }
+}
+
+// ── Mobile Touch Target Utility ──────────────────────────────────────
+.touch-target {
+  min-height: 40px;
+  min-width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 // ── SCSS-only effects (keyframe lib + ambient helpers) ─────────
 @keyframes smokeShimmer {
   0% {
@@ -310,3 +335,19 @@
     transform: rotate(360deg);
   }
 }
+
+@keyframes mobileBubbleIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-mobile-bubble {
+  animation: mobileBubbleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+

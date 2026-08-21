@@ -91,7 +91,7 @@ export function IsolatedHtml({ code }: IsolatedHtmlProps) {
           <iframe
             ref={iframeRef}
             title="html-preview"
-            sandbox="allow-scripts allow-modals allow-forms allow-popups"
+            sandbox="allow-same-origin allow-scripts allow-modals allow-forms allow-popups allow-downloads allow-pointer-lock"
             srcDoc={srcDoc}
             onLoad={remeasure}
             loading="lazy"

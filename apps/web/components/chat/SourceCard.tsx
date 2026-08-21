@@ -9,9 +9,17 @@ export type SourceItem =
   | { type: 'web'; source: WebSourceDto }
   | { type: 'knowledge'; source: CitationDto };
 
+function faviconSources(domain: string): string[] {
+  const d = encodeURIComponent(domain);
+  return [
+    `https://icons.duckduckgo.com/ip3/${d}.ico`,
+    `https://www.google.com/s2/favicons?domain=${d}&sz=64`,
+  ];
+}
+
 function Favicon({ domain, type }: { domain: string; type: SourceItem['type'] }) {
-  const [failed, setFailed] = useState(false);
-  if (type === 'knowledge' || failed || !domain) {
+  const [failed, setFailed] = useState(0);
+  if (type === 'knowledge' || !domain) {
     return (
       <span
         className={cn(
@@ -23,13 +31,22 @@ function Favicon({ domain, type }: { domain: string; type: SourceItem['type'] })
       </span>
     );
   }
+  const sources = faviconSources(domain);
+  if (failed >= sources.length) {
+    return (
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-[11px] font-bold uppercase text-cyan-300">
+        {domain[0] ?? 'w'}
+      </span>
+    );
+  }
   return (
     <img
-      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`}
+      key={sources[failed]}
+      src={sources[failed]}
       alt=""
       width={28}
       height={28}
-      onError={() => setFailed(true)}
+      onError={() => setFailed((n) => n + 1)}
       className="h-7 w-7 shrink-0 rounded-lg bg-surface-800 object-contain p-1"
     />
   );

@@ -60,7 +60,8 @@ const KEY_PROVIDERS = [
   { id: 'openrouter', label: 'OpenRouter', group: 'Chat models', placeholder: 'sk-or-v1-…', getKeyUrl: 'https://openrouter.ai/keys' },
   { id: 'openai', label: 'OpenAI — ChatGPT', group: 'Chat models', placeholder: 'sk-…', getKeyUrl: 'https://platform.openai.com/api-keys' },
   { id: 'xai', label: 'xAI — Grok', group: 'Chat models', placeholder: 'xai-…', getKeyUrl: 'https://console.x.ai' },
-  { id: 'gemini', label: 'Google Gemini', group: 'Chat models', placeholder: 'AIza… (39-char)', getKeyUrl: 'https://aistudio.google.com/apikey' },
+  { id: 'gemini', label: 'Google Gemini', group: 'Chat models', placeholder: 'AIza… or key', getKeyUrl: 'https://aistudio.google.com/apikey' },
+  { id: 'opencode', label: 'OpenCode Zen', group: 'Chat models', placeholder: 'opencode key', getKeyUrl: 'https://opencode.ai/zen' },
   { id: 'nvidia', label: 'NVIDIA NIM', group: 'Chat models', placeholder: 'nvapi-…', getKeyUrl: 'https://build.nvidia.com' },
   { id: 'tavily', label: 'Tavily', group: 'Web search', placeholder: 'tvly-…', getKeyUrl: 'https://app.tavily.com' },
   { id: 'brave', label: 'Brave Search', group: 'Web search', placeholder: 'BSA…', getKeyUrl: 'https://brave.com/search/api/' },
@@ -68,7 +69,7 @@ const KEY_PROVIDERS = [
 ];
 
 /** Provider whose chat requests need a saved user key. */
-const CHAT_KEY_PROVIDERS = new Set(['openrouter', 'nvidia', 'openai', 'xai', 'gemini']);
+const CHAT_KEY_PROVIDERS = new Set(['openrouter', 'nvidia', 'openai', 'xai', 'gemini', 'opencode']);
 
 function ScopePicker({
   documents,
@@ -297,7 +298,7 @@ export function ChatComposer({
   const needsKey = CHAT_KEY_PROVIDERS.has(provider) && !savedKeys.some((k) => k.provider === provider);
 
   return (
-    <div className="rounded-2xl border border-surface-700 bg-surface-900/80 shadow-lg shadow-black/20 backdrop-blur transition-all focus-within:border-primary/50">
+    <div className="w-full rounded-2xl border border-surface-700 bg-surface-900/80 shadow-lg shadow-black/20 backdrop-blur transition-all focus-within:border-primary/50">
       <textarea
         rows={1}
         value={input}
@@ -309,10 +310,10 @@ export function ChatComposer({
             if (!streaming && input.trim() && !disabled) onSend();
           }
         }}
-        className="max-h-40 w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-sm leading-relaxed text-ink-primary placeholder:text-ink-muted focus:outline-none"
+        className="max-h-32 min-h-[40px] w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-base leading-relaxed text-ink-primary placeholder:text-ink-muted focus:outline-none sm:max-h-40 sm:px-4 sm:pt-3.5 sm:text-sm"
       />
 
-      <div className="flex flex-wrap items-center gap-1 px-2.5 pb-2 pt-0.5">
+      <div className="flex items-center gap-1 overflow-x-auto px-2 pb-2 pt-0.5 scrollbar-none sm:flex-wrap sm:overflow-visible">
         <input
           ref={fileInputRef}
           type="file"
@@ -325,7 +326,7 @@ export function ChatComposer({
           }}
         />
         <ComposerAction
-          icon={<Paperclip className="h-4 w-4" />}
+          icon={<Paperclip className="h-4 w-4 shrink-0" />}
           label="Attach"
           onClick={() => fileInputRef.current?.click()}
           title="Attach a PDF"
@@ -338,14 +339,14 @@ export function ChatComposer({
             <button
               type="button"
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+                'inline-flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:px-2.5 sm:py-1.5',
                 selectedDocIds.size > 0
                   ? 'bg-primary-subtle text-white'
                   : 'text-ink-secondary hover:bg-surface-800 hover:text-white',
               )}
               title="Choose which documents to search"
             >
-              <Book className="h-4 w-4" />
+              <Book className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">Knowledge Base</span>
               {selectedDocIds.size > 0 && (
                 <span className="rounded-full bg-primary/25 px-1.5 text-[10px] text-primary">{selectedDocIds.size}</span>
@@ -368,14 +369,14 @@ export function ChatComposer({
             <button
               type="button"
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+                'inline-flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:px-2.5 sm:py-1.5',
                 needsKey
                   ? 'bg-warning/10 text-warning hover:bg-warning/20'
                   : 'text-ink-secondary hover:bg-surface-800 hover:text-white',
               )}
               title="Manage API keys"
             >
-              <Key className="h-4 w-4" />
+              <Key className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">Keys</span>
               {needsKey && <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold text-black">!</span>}
             </button>
@@ -389,7 +390,7 @@ export function ChatComposer({
             type="button"
             onClick={onToggleOmniRoute}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+              'inline-flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:px-2.5 sm:py-1.5',
               omnirouteMode
                 ? 'bg-warning/15 text-warning hover:bg-warning/25'
                 : 'text-ink-secondary hover:bg-surface-800 hover:text-white',
@@ -400,7 +401,7 @@ export function ChatComposer({
                 : 'Turn on free OmniRoute mode (keyless models, no API key)'
             }
           >
-            <Zap className="h-4 w-4" />
+            <Zap className="h-4 w-4 shrink-0" />
             <span className="hidden sm:inline">{omnirouteMode ? 'Free mode' : 'Enable free mode'}</span>
             {omnirouteMode && (
               <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold text-black">ON</span>
@@ -413,7 +414,7 @@ export function ChatComposer({
             type="button"
             onClick={onToggleWebSearch}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+              'inline-flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:px-2.5 sm:py-1.5',
               webSearchEnabled
                 ? 'bg-primary-subtle text-white hover:bg-primary-subtle/80'
                 : 'text-ink-secondary hover:bg-surface-800 hover:text-white',
@@ -424,7 +425,7 @@ export function ChatComposer({
                 : 'Turn on web search for fresh/live answers'
             }
           >
-            <Globe className="h-4 w-4" />
+            <Globe className="h-4 w-4 shrink-0" />
             <span className="hidden sm:inline">Web Search</span>
             {webSearchEnabled && (
               <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-black">ON</span>
@@ -438,17 +439,17 @@ export function ChatComposer({
           <button
             type="button"
             onClick={onStop}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-surface-800 hover:text-red-200"
+            className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-surface-800 hover:text-red-200 shrink-0"
           >
-            <Square className="h-3.5 w-3.5" />
-            Stop
+            <Square className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Stop</span>
           </button>
         ) : (
           <button
             type="button"
             onClick={onSend}
             disabled={disabled || !input.trim()}
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary-hover active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary-hover active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             title="Send"
           >
             <ArrowUp className="h-4 w-4" />
@@ -457,27 +458,29 @@ export function ChatComposer({
       </div>
 
       {providers.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-surface-700/50 px-3 py-2">
-          <span className="text-[11px] font-medium text-ink-muted">Model</span>
-          <ModelPicker
-            providers={providers}
-            provider={provider}
-            model={model}
-            defaultProvider={defaultProvider}
-            presets={presets}
-            onChange={onModelChange}
-            compact
-          />
+        <div className="flex min-w-0 items-center justify-between gap-2 border-t border-surface-700/50 px-3 py-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 text-[11px] font-medium text-ink-muted">Model</span>
+            <ModelPicker
+              providers={providers}
+              provider={provider}
+              model={model}
+              defaultProvider={defaultProvider}
+              presets={presets}
+              onChange={onModelChange}
+              compact
+            />
+          </div>
           {omnirouteMode ? (
-            <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-success">
+            <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-success sm:inline-flex">
               <Zap className="h-3 w-3" />
-              100+ free models — no key needed
+              100+ free models
             </span>
           ) : (
             needsKey && (
-              <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-warning">
+              <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-warning sm:inline-flex">
                 <Search className="h-3 w-3" />
-                Add your {providers.find((p) => p.id === provider)?.label ?? provider} key to chat
+                Add key
               </span>
             )
           )}
@@ -502,7 +505,7 @@ function ComposerAction({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-surface-800 hover:text-white"
+      className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium text-ink-secondary transition-colors hover:bg-surface-800 hover:text-white sm:px-2.5 sm:py-1.5"
       title={title}
     >
       {icon}

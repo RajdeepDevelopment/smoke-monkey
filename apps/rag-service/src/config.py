@@ -70,31 +70,73 @@ class Settings(BaseSettings):
     xai_chat_models: str = "grok-4.6,grok-4.5,grok-4.3"
 
     # OpenRouter (cloud) — chat models (change freely; `:free` variants need no
-    # credits). ~50 most-used models across families (Google Gemini, Anthropic
-    # Claude, OpenAI GPT, x-ai Grok, DeepSeek, Qwen, Llama, Mistral, Kimi, GLM,
-    # Nemotron, …). The full dynamic list (400+) is served live from
+    # credits). ~150 curated models across families (all Google Gemini/Gemma,
+    # Anthropic Claude, OpenAI GPT, x-ai Grok, DeepSeek, Qwen, Llama, Mistral,
+    # Kimi, GLM, Nemotron, …). The full dynamic list (400+) is served live from
     # `GET /api/v1/openrouter/models`; this list is the curated default set.
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_chat_model: str = "nvidia/nemotron-3-nano-30b-a3b:free"
     openrouter_chat_models: str = (
         "google/gemini-3.7-flash,google/gemini-3.6-flash,google/gemini-3.5-flash,"
-        "google/gemini-3.5-flash-lite,anthropic/claude-opus-5,anthropic/claude-opus-5-fast,"
-        "anthropic/claude-sonnet-5,anthropic/claude-fable-5,anthropic/claude-opus-4.8,"
-        "openai/gpt-5.6-luna-pro,openai/gpt-5.6-luna,openai/gpt-5.6-terra,openai/gpt-5.6-sol,"
+        "google/gemini-3.5-flash-lite,anthropic/claude-opus-5,"
+        "anthropic/claude-opus-5-fast,anthropic/claude-sonnet-5,"
+        "anthropic/claude-fable-5,anthropic/claude-opus-4.8,openai/gpt-5.6-luna-pro,"
+        "openai/gpt-5.6-luna,openai/gpt-5.6-terra,openai/gpt-5.6-sol,"
         "openai/gpt-chat-latest,x-ai/grok-4.6,x-ai/grok-4.5,x-ai/grok-4.3,"
         "deepseek/deepseek-v4-pro,deepseek/deepseek-v4-flash,deepseek/deepseek-v3.2,"
-        "deepseek/deepseek-r1,qwen/qwen3.8-max,qwen/qwen3.7-flash,qwen/qwen3.6-35b-a3b,"
-        "qwen/qwen3.5-9b,meta-llama/llama-4-maverick,meta-llama/llama-4-scout,"
-        "meta-llama/llama-3.3-70b-instruct,mistralai/mistral-large-2512,"
-        "mistralai/mistral-small-3.2-24b-instruct,mistralai/codestral-2508,"
-        "moonshotai/kimi-k3,moonshotai/kimi-k2.6,moonshotai/kimi-k2.5,"
-        "z-ai/glm-5.2,z-ai/glm-4.7-flash,nvidia/nemotron-3-ultra-550b-a55b,"
-        "nvidia/nemotron-3-super-120b-a12b:free,nvidia/nemotron-3-nano-30b-a3b:free,"
-        "nvidia/nemotron-3.5-lightning:free,cohere/command-a,amazon/nova-pro-v1,"
-        "amazon/nova-2-lite-v1,minimax/minimax-m3,perplexity/sonar-pro,"
-        "bytedance-seed/seed-2-1-turbo,openrouter/auto,openrouter/fusion,"
-        "qwen/qwen3.8-2.4t-a95b,z-ai/glm-5v-turbo"
+        "deepseek/deepseek-r1,qwen/qwen3.8-max,qwen/qwen3.7-flash,"
+        "qwen/qwen3.6-35b-a3b,qwen/qwen3.5-9b,meta-llama/llama-4-maverick,"
+        "meta-llama/llama-4-scout,meta-llama/llama-3.3-70b-instruct,"
+        "mistralai/mistral-large-2512,mistralai/mistral-small-3.2-24b-instruct,"
+        "mistralai/codestral-2508,moonshotai/kimi-k3,moonshotai/kimi-k2.6,"
+        "moonshotai/kimi-k2.5,z-ai/glm-5.2,z-ai/glm-4.7-flash,"
+        "nvidia/nemotron-3-ultra-550b-a55b,nvidia/nemotron-3-super-120b-a12b:free,"
+        "nvidia/nemotron-3-nano-30b-a3b:free,nvidia/nemotron-3.5-lightning:free,"
+        "cohere/command-a,amazon/nova-pro-v1,amazon/nova-2-lite-v1,minimax/minimax-m3,"
+        "perplexity/sonar-pro,bytedance-seed/seed-2-1-turbo,openrouter/auto,"
+        "openrouter/fusion,qwen/qwen3.8-2.4t-a95b,z-ai/glm-5v-turbo,"
+        "google/gemini-2.5-pro-preview,google/gemma-4-31b-it,"
+        "google/gemma-4-26b-a4b-it:free,google/gemma-3-4b-it,"
+        "google/gemini-3.1-flash-lite,google/gemma-4-31b-it:free,"
+        "google/gemma-4-26b-a4b-it,google/gemini-3-flash-preview,"
+        "google/gemini-2.5-flash-lite,google/gemini-3.1-flash-lite-preview,"
+        "google/gemma-3-27b-it,google/gemini-2.5-pro,google/gemma-3-12b-it,"
+        "google/gemini-2.5-flash,google/gemini-3.1-pro-preview,"
+        "google/gemini-2.5-pro-preview-05-06,"
+        "google/gemini-3.1-pro-preview-customtools,google/gemma-2-27b-it,"
+        "google/gemma-3n-e4b-it,anthropic/claude-opus-4.8-fast,"
+        "anthropic/claude-opus-4.7,anthropic/claude-opus-4.6,"
+        "anthropic/claude-opus-4.5,anthropic/claude-opus-4.1,anthropic/claude-opus-4,"
+        "anthropic/claude-sonnet-4.6,anthropic/claude-sonnet-4.5,"
+        "anthropic/claude-sonnet-4,anthropic/claude-haiku-4.5,"
+        "anthropic/claude-3-haiku,openai/gpt-5.5-pro,openai/gpt-5.4-pro,"
+        "openai/gpt-5.2-pro,openai/gpt-5-pro,openai/gpt-5.5,openai/gpt-5.4-mini,"
+        "openai/gpt-5.4,openai/gpt-5.2-codex,openai/gpt-5.2-chat,openai/gpt-5.2,"
+        "openai/gpt-5.1-codex,openai/gpt-5.1-codex-mini,openai/gpt-5.1,openai/gpt-5,"
+        "openai/gpt-5-mini,openai/gpt-oss-120b,openai/gpt-oss-20b:free,openai/gpt-4.1,"
+        "openai/gpt-4o-mini,x-ai/grok-4.20,x-ai/grok-build-0.1,"
+        "deepseek/deepseek-v4-pro-0813,deepseek/deepseek-v4-flash-0731,"
+        "deepseek/deepseek-v3.2-exp,deepseek/deepseek-chat-v3.1,"
+        "deepseek/deepseek-r1-0528,deepseek/deepseek-chat-v3-0324,"
+        "deepseek/deepseek-chat,deepseek/deepseek-r1-distill-llama-70b,"
+        "qwen/qwen3.7-max,qwen/qwen3.6-flash,qwen/qwen3-max-thinking,qwen/qwen3-max,"
+        "qwen/qwen3-coder-flash,qwen/qwen3.8-27b,qwen/qwen3.5-122b-a10b,"
+        "qwen/qwen3-coder,qwen/qwen3-235b-a22b,qwen/qwen3-32b,qwen/qwen3-14b,"
+        "qwen/qwen2.5-vl-72b-instruct,qwen/qwen-plus,"
+        "meta-llama/llama-3.1-70b-instruct,meta-llama/llama-3.1-8b-instruct,"
+        "meta-llama/llama-3.2-3b-instruct,mistralai/mistral-large,"
+        "mistralai/mistral-medium-3,mistralai/mistral-small-3.1-24b-instruct,"
+        "mistralai/mistral-small-24b-instruct-2501,mistralai/mistral-nemo,"
+        "mistralai/mixtral-8x22b-instruct,mistralai/ministral-8b-2512,"
+        "moonshotai/kimi-k2.7-code,moonshotai/kimi-k2-thinking,"
+        "moonshotai/kimi-k2-0905,moonshotai/kimi-k2,z-ai/glm-5.1,z-ai/glm-5,"
+        "z-ai/glm-4.7,z-ai/glm-4.6,z-ai/glm-4.5,z-ai/glm-4.5-air,"
+        "nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b,"
+        "nvidia/nemotron-3-nano-30b-a3b,"
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,"
+        "nvidia/nemotron-nano-9b-v2:free,cohere/command-r-08-2024,"
+        "cohere/command-r-plus-08-2024,cohere/command-r7b-12-2024"
     )
 
     # OmniRoute (free, keyless) — local OpenAI-compatible gateway
@@ -109,6 +151,18 @@ class Settings(BaseSettings):
     omniroute_chat_model: str = "auto"
     omniroute_chat_models: str = (
         "auto,auto/best-free,groq/llama-3.3-70b,lc/LongCat-Flash-Lite"
+    )
+
+    # OpenCode Zen (opencode.ai) — OpenAI-compatible endpoint serving the free
+    # OpenCode Zen models (deepseek-v4-flash-free, nemotron-3-ultra-free,
+    # mimo-v2.5-free, laguna-s-2.1-free, big-pickle). OPENCODE_API_KEY is the
+    # server-level default; users can also bring their own key.
+    opencode_api_key: str = ""
+    opencode_base_url: str = "https://opencode.ai/zen/v1"
+    opencode_chat_model: str = "deepseek-v4-flash-free"
+    opencode_chat_models: str = (
+        "deepseek-v4-flash-free,nemotron-3-ultra-free,mimo-v2.5-free,"
+        "laguna-s-2.1-free,big-pickle"
     )
 
     # NVIDIA NIM (cloud) — OpenAI-compatible chat/embeddings at
@@ -213,6 +267,21 @@ class Settings(BaseSettings):
     memory_critical_importance: float = 0.8
     memory_critical_top_k: int = 3
 
+    # ── Personalization planner ─────────────────────────────────────────────
+    # Runs BEFORE generation: decides whether a request depends on the user's
+    # circumstances, which context fields it needs, and what is known/missing.
+    # The final LLM gets a compact snapshot so it personalises by default and
+    # only asks for the minimum genuinely missing information.
+    personalization_enabled: bool = True
+    personalization_cache_ttl: int = 300
+    personalization_max_context: int = 6
+    # A field is "reliably known" only when a retrieved memory scores at least
+    # this high; below it the snapshot marks the field LOW_CONFIDENCE so the
+    # LLM treats the value as a hint, not a fact.
+    personalization_known_min_score: float = 0.5
+    # How many semantic facts to pull per required-context field.
+    personalization_field_top_k: int = 3
+
     # Write pipeline (spec: Deduplicator + Resolver). Before a new fact is
     # stored its embedding is compared against the user's existing memories;
     # cosine similarity >= ignore → skip (refresh recency), >= merge → update
@@ -258,6 +327,124 @@ class Settings(BaseSettings):
     memory_graph_context_depth: int = 1
     memory_graph_context_top_k: int = 6
     memory_relationship_embed_threshold: float = 0.66
+    # Neo4j traversal safety: a hostile/deep graph must never burn the query
+    # budget. depth is clamped to max_depth and every Cypher run is bounded by
+    # max_nodes + query_timeout_s (enforced via asyncio around the result).
+    memory_graph_max_depth: int = 3
+    memory_graph_max_nodes: int = 50
+    memory_graph_query_timeout_s: float = 2.0
+
+    # ── Transactional outbox (cross-store consistency) ──────────────────────
+    # Every durable memory write is appended to the Postgres `memory_outbox`
+    # table in the same transaction; a relay worker replays those events into
+    # the Neo4j graph (and any other downstream store) with retry + backoff,
+    # then a dead-letter queue. Postgres stays the source of truth and the
+    # graph is eventually consistent without inline coupling.
+    memory_outbox_enabled: bool = True
+    memory_outbox_batch_size: int = 50
+    memory_outbox_poll_interval_s: float = 1.0
+    memory_outbox_claim_seconds: int = 60
+    memory_outbox_max_attempts: int = 5
+    memory_outbox_backoff_base_s: float = 1.0
+    memory_outbox_backoff_max_s: float = 300.0
+
+    # ── Scheduler (scheduled intents) ───────────────────────────────────────
+    # A background poll loop claims due intents with FOR UPDATE SKIP LOCKED so
+    # many scheduler workers never double-dispatch the same intent. Fairness:
+    # at most `scheduler_max_per_user_per_cycle` intents are dispatched per
+    # user each cycle, and the background observer queue is rate-limited per
+    # user per minute so one hot user cannot flood the workers.
+    scheduler_enabled: bool = True
+    scheduler_poll_interval_s: float = 2.0
+    scheduler_claim_batch: int = 100
+    scheduler_claim_seconds: int = 120
+    scheduler_max_per_user_per_cycle: int = 10
+    scheduler_background_max_per_user_per_minute: int = 60
+    # Missed-intent policy (replaces the old fixed 24h expiry):
+    #   dispatch_late — dispatch when missed by <= missed_dispatch_max_hours,
+    #                   otherwise expire the ancient intent.
+    #   expire        — any missed intent is expired immediately.
+    #   reschedule    — push the trigger forward one interval and try again.
+    #   alert         — mark failed and surface on the DLQ/metrics.
+    scheduler_missed_policy: str = "dispatch_late"
+    scheduler_missed_dispatch_max_hours: int = 24
+    # Scheduler-side retry/DLQ: enqueue failures back off and escalate to the
+    # intent DLQ after `scheduler_max_attempts`, instead of hot-looping.
+    scheduler_max_attempts: int = 5
+    scheduler_backoff_base_s: float = 1.0
+    scheduler_backoff_max_s: float = 300.0
+
+    # ── Context router budgets (online plane cost control) ──────────────────
+    # The router only calls the providers a query actually needs, and the
+    # ContextSnapshot is truncated per-section and globally so one rich user
+    # cannot blow the LLM context window. Tokens are estimated at len/4.
+    context_router_enabled: bool = True
+    context_max_tokens: int = 4500
+    context_budget_recent: int = 1000
+    context_budget_facts: int = 1500
+    context_budget_graph: int = 800
+    context_budget_tasks: int = 500
+    context_budget_prospective: int = 400
+    context_budget_personality: int = 300
+    context_budget_live: int = 300
+    context_compression_enabled: bool = True
+
+    # ── Memory lifecycle (candidate → confirmed → stable → stale → archived) ─
+    # New facts start as `candidate`; every re-statement/recall bumps the
+    # evidence count until `memory_confirm_accesses` → `confirmed`, then
+    # `memory_stable_accesses` accesses at `memory_stable_min_importance` →
+    # `stable`. Unused confirmed facts age to `stale` after `memory_stale_days`,
+    # and `archived` is the manual/soft-delete terminal state. The confidence
+    # column rises with evidence (capped) so durable knowledge is distinct from
+    # one-off observations.
+    memory_lifecycle_enabled: bool = True
+    memory_confirm_accesses: int = 2
+    memory_stable_accesses: int = 4
+    memory_stable_min_importance: float = 0.6
+    memory_stale_days: int = 45
+    memory_evidence_boost: float = 0.02
+    memory_confidence_floor: float = 0.5
+
+    # ── Context reconstruction / reference resolution ───────────────────────
+    # Generic conversational-context layer (spec: "Context Reconstruction Before
+    # Memory Operations"). A message is NEVER interpreted in isolation for
+    # memory reads or writes: a cheap heuristic gate (self-contained vs
+    # context-dependent) decides whether the LLM reconstruction pass is needed,
+    # so self-contained queries pay nothing. The reconstructed context (resolved
+    # references, active entities/topic, decontextualized query) feeds both the
+    # retrieval planner and the write-side extraction/reconciliation.
+    memory_context_enabled: bool = True
+    # Prompt A (context understanding) only runs when the gate flags the
+    # message as context-dependent.
+    memory_context_max_history: int = 8
+    # Resolutions with confidence below this stay flagged as ambiguous.
+    memory_context_min_confidence: float = 0.6
+    # Reconstructed-context retrieval: resolved entities reused as query anchors.
+    memory_context_retrieval_top_k: int = 3
+    # Short-lived per-user conversation state (active entities/topic/references)
+    # kept in Redis so context survives across requests without re-analysis.
+    memory_context_state_enabled: bool = True
+    memory_context_state_ttl_s: int = 7200
+
+    # Reconciliation (spec: Prompt E). Candidate facts are compared against the
+    # user's existing memories before being stored; duplicates are skipped,
+    # updates/corrections merge into the existing record, supersessions archive
+    # the old fact, contradictions keep both sides. Only facts at or above this
+    # importance trigger the (LLM) reconciliation pass — trivia never pays it.
+    memory_reconcile_enabled: bool = True
+    memory_reconcile_min_importance: float = 0.6
+    memory_reconcile_top_k: int = 4
+
+    # ── Observability (scheduler metrics, tracing, queue/memory growth) ─────
+    # A lightweight in-process metrics registry (no external deps) sampled on a
+    # loop: scheduler cycles/dispatches/expiries, queue lag (Redis LLEN), and
+    # memory growth (Postgres row counts). When tracing is enabled the same
+    # hooks emit OpenTelemetry-style spans through an injectable tracer.
+    monitor_enabled: bool = True
+    monitor_poll_interval_s: float = 30.0
+    monitor_tracing_enabled: bool = False
+    monitor_queue_max_lag: int = 1000
+    monitor_memory_max_rows: int = 1000000
 
     # ── Live web context (optional) ─────────────────────────────────────────
     # Multi-provider live search: queries all providers that have a key (user's

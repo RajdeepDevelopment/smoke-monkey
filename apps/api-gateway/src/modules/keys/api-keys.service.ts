@@ -15,6 +15,7 @@ import {
   PROVIDER_GOOGLE,
   PROVIDER_NVIDIA,
   PROVIDER_OPENAI,
+  PROVIDER_OPENCODE,
   PROVIDER_OPENROUTER,
   PROVIDER_TAVILY,
   PROVIDER_XAI,
@@ -27,6 +28,7 @@ const NVIDIA_CHAT_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const OPENAI_MODELS_URL = 'https://api.openai.com/v1/models';
 const XAI_MODELS_URL = 'https://api.x.ai/v1/models';
 const GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const OPENCODE_MODELS_URL = 'https://opencode.ai/zen/v1/models';
 
 export interface UserKeySummary {
   provider: string;
@@ -175,9 +177,14 @@ export class ApiKeysService {
         'invalid xAI key — it should start with "xai-". Get one at console.x.ai',
       );
     }
-    if (provider === PROVIDER_GEMINI && !/^[A-Za-z0-9]{20,50}$/.test(apiKey)) {
+    if (provider === PROVIDER_GEMINI && !/^[A-Za-z0-9._-]{16,128}$/.test(apiKey)) {
       throw new BadRequestException(
-        'invalid Gemini key — it is a ~39-character alphanumeric string. Get one free at aistudio.google.com/apikey',
+        'invalid Gemini key — it is an alphanumeric string (may include dots, dashes, underscores). Get one free at aistudio.google.com/apikey',
+      );
+    }
+    if (provider === PROVIDER_OPENCODE && apiKey.trim().length < 8) {
+      throw new BadRequestException(
+        'invalid OpenCode Zen key — it is too short. Get one by signing in at opencode.ai/zen',
       );
     }
     if (provider === PROVIDER_TAVILY && !apiKey.startsWith('tvly-')) {
@@ -190,9 +197,9 @@ export class ApiKeysService {
         'invalid Brave key — it should start with "BSA". Get one at brave.com/search/api/',
       );
     }
-    if (provider === PROVIDER_GOOGLE && !/^[A-Za-z0-9]{20,50}$/.test(apiKey)) {
+    if (provider === PROVIDER_GOOGLE && !/^[A-Za-z0-9._-]{16,128}$/.test(apiKey)) {
       throw new BadRequestException(
-        'invalid Google key — it is a 39-character alphanumeric string. Get one at console.cloud.google.com',
+        'invalid Google key — it is an alphanumeric string. Get one at console.cloud.google.com',
       );
     }
     if (provider === PROVIDER_BING && !/^[A-Za-z0-9]{24,40}$/.test(apiKey)) {
@@ -224,6 +231,9 @@ export class ApiKeysService {
     }
     if (provider === PROVIDER_GEMINI) {
       return this.validateGeminiKey(apiKey);
+    }
+    if (provider === PROVIDER_OPENCODE) {
+      return this.validateOpenAiCompatKey(OPENCODE_MODELS_URL, apiKey, 'OpenCode Zen');
     }
     return null;
   }

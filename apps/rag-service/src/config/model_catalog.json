@@ -6,11 +6,57 @@
     "xai": { "label": "xAI — Grok" },
     "ollama": { "label": "Local (Ollama)" },
     "gemini": { "label": "Google Gemini" },
+    "opencode": { "label": "OpenCode Zen (free)" },
     "omniroute": { "label": "OmniRoute (free, keyless)" }
   },
   "presets": [
     {
       "role": "main",
+      "label": "Primary RAG / chat",
+      "provider": "opencode",
+      "model": "deepseek-v4-flash-free",
+      "rating": 5,
+      "isFree": true,
+      "notes": "DeepSeek V4 Flash Free — primary RAG and chat model"
+    },
+    {
+      "role": "reasoning",
+      "label": "Best reasoning",
+      "provider": "opencode",
+      "model": "nemotron-3-ultra-free",
+      "rating": 5,
+      "isFree": true,
+      "notes": "Nemotron 3 Ultra Free — reasoning and difficult queries"
+    },
+    {
+      "role": "fast",
+      "label": "Fast secondary",
+      "provider": "opencode",
+      "model": "mimo-v2.5-free",
+      "rating": 4,
+      "isFree": true,
+      "notes": "MiMo V2.5 Free — fast secondary model"
+    },
+    {
+      "role": "experimental",
+      "label": "Experimental",
+      "provider": "opencode",
+      "model": "big-pickle",
+      "rating": 3,
+      "isFree": true,
+      "notes": "Big Pickle — experimental / fallback"
+    },
+    {
+      "role": "fallback",
+      "label": "Experiment / fallback",
+      "provider": "opencode",
+      "model": "laguna-s-2.1-free",
+      "rating": 3,
+      "isFree": true,
+      "notes": "Laguna S 2.1 Free — experiment / fallback"
+    },
+    {
+      "role": "main-openrouter",
       "label": "Main chatbot",
       "provider": "openrouter",
       "model": "deepseek/deepseek-v4-flash",
@@ -19,7 +65,7 @@
       "notes": "Everyday Q&A over your documents"
     },
     {
-      "role": "reasoning",
+      "role": "reasoning-openrouter",
       "label": "Best reasoning",
       "provider": "openrouter",
       "model": "deepseek/deepseek-v4-pro",

@@ -16,7 +16,17 @@ from redis.asyncio import Redis
 from src.application.cache import QueryCache
 from src.application.mem.agent import MemoryAgent
 from src.application.mem.models import MemoryType
+from src.application.mem.personalization import (
+    ContextSnapshot,
+    PersonalizationPlan,
+    PersonalizationPlanner,
+)
 from src.application.mem.planner import MemoryPlan, RetrievalPlanner
+from src.application.mem.reconstruction import (
+    ContextPacket,
+    ContextReconstructor,
+    ConversationStateStore,
+)
 from src.application.memory import MemoryStore, rank_memory
 from src.application.omniroute import omniroute_enabled_for
 from src.application.router import QueryRouter, RoutePlan, _fallback_plan
@@ -40,10 +50,29 @@ logger = logging.getLogger(__name__)
 
 PARENT_QUERY = "SELECT id, content FROM chunks WHERE id = ANY($1::uuid[])"
 
-CLOUD_PROVIDERS = ("openrouter", "nvidia", "openai", "xai", "gemini")
+CLOUD_PROVIDERS = ("openrouter", "nvidia", "openai", "xai", "gemini", "opencode")
 
 EMBED_CACHE_PREFIX = "rag:embed:v1"
 RETRIEVAL_CACHE_PREFIX = "rag:retr:v1"
+
+
+def _friendly_fallback_reason(exc: Exception) -> str:
+    """Turn a raw upstream LLM error into a short, user-readable reason.
+
+    The primary provider failed mid-generation (bad key, exhausted
+    credits/rate limit, upstream outage). The raw exception often embeds a
+    JSON error body — this maps it to a plain sentence the UI can show.
+    """
+    msg = str(exc)
+    low = msg.lower()
+    if any(k in low for k in ("rate limit", "freeusagelimit", "quota", "429")):
+        return "the model is rate-limited right now (free-tier quota) — wait a moment and retry"
+    if any(k in low for k in ("credit", "license", "permission-denied", "payment", "402")):
+        return "the key has no credits or license on this provider"
+    if "401" in msg or "invalid api key" in low:
+        return "the provider rejected the key — check it in Settings → API keys"
+    return msg[:220]
+
 
 _QUERY_MARKERS = (
     "how",
@@ -75,6 +104,8 @@ def _server_default_key(provider: str) -> str:
         return settings.xai_api_key
     if provider == "gemini":
         return settings.gemini_api_key
+    if provider == "opencode":
+        return settings.opencode_api_key
     return ""
 
 
@@ -118,6 +149,16 @@ class QueryPipeline:
         self.memory = memory
         self.memory_agent = memory_agent
         self.web = web
+        # Context reconstruction / reference resolution (spec: Prompt A/B/C/E).
+        # The classifier is a pure cost gate; reconstruction only runs its LLM
+        # prompts for messages that actually depend on earlier context.
+        self.context_reconstructor = ContextReconstructor()
+        self.conversation_state_store = (
+            ConversationStateStore(redis, ttl_s=settings.memory_context_state_ttl_s)
+            if settings.memory_context_state_enabled
+            else None
+        )
+        self.personalization = PersonalizationPlanner(redis)
         self._llm_cache: dict[tuple[str, str | None, str | None], ChatLLM] = {}
         # Fire-and-forget memory index tasks. Held here so the event loop keeps
         # a reference (CPython drops unreferenced tasks), and awaited on
@@ -186,6 +227,8 @@ class QueryPipeline:
                 nvidia_model=settings.nvidia_chat_model,
                 omniroute_api_key=settings.omniroute_api_key,
                 omniroute_model=settings.omniroute_chat_model,
+                opencode_api_key=settings.opencode_api_key,
+                opencode_model=settings.opencode_chat_model,
                 model=model,
                 api_key=api_key,
             )
@@ -350,8 +393,15 @@ class QueryPipeline:
         params: dict[str, Any],
         t: dict[str, float],
         document_ids: list[str] | None = None,
+        base_query_vector: list[float] | None = None,
     ) -> tuple[list[RetrievedChunk], bool]:
-        """Run hybrid retrieval; returns ``(chunks, retrieval_cache_hit)``."""
+        """Run hybrid retrieval; returns ``(chunks, retrieval_cache_hit)``.
+
+        ``base_query_vector`` is the embedding of ``query`` computed once by the
+        caller and shared with the memory search, so the same query is embedded
+        a single time. When provided, only the multi-query/HyDE rewrite variants
+        are embedded here; otherwise the query is embedded as before.
+        """
         cached = await self._get_cached_retrieval(user_id, query, mode, params, document_ids)
         if cached is not None:
             logger.debug("retrieval cache hit for query=%r mode=%s", query, mode)
@@ -383,7 +433,19 @@ class QueryPipeline:
             else settings.openrouter_embed_input_type
         )
         t_emb = time.perf_counter()
-        vectors = await self._embed_cached(queries, api_key=embed_key, input_type=embed_input_type)
+        if base_query_vector is not None and queries and queries[0] == query:
+            # The base query vector is already shared from the caller's single
+            # embed call — only the rewrite variants need embedding.
+            variant_vectors = (
+                await self._embed_cached(
+                    queries[1:], api_key=embed_key, input_type=embed_input_type
+                )
+                if len(queries) > 1
+                else []
+            )
+            vectors = [base_query_vector, *variant_vectors]
+        else:
+            vectors = await self._embed_cached(queries, api_key=embed_key, input_type=embed_input_type)
         t["embedding_ms"] = round((time.perf_counter() - t_emb) * 1000, 1)
 
         # Dense search for every query vector + sparse search run concurrently.
@@ -480,6 +542,7 @@ class QueryPipeline:
         if hits or facts or rel_facts:
             try:
                 await self.memory.touch(
+                    user_id,
                     [uuid.UUID(h.id) for h in hits],
                     [uuid.UUID(f.id) for f in facts + rel_facts],
                 )
@@ -497,6 +560,126 @@ class QueryPipeline:
             )
         return hits, facts, relationships
 
+    async def _memory_pipeline(
+        self,
+        llm: ChatLLM,
+        request: QueryRequest,
+        query: str,
+        resolved_query: str,
+        route: RoutePlan,
+        query_vec: list[float],
+        embed_key: str | None,
+        chat_key: str | None,
+        context_packet: ContextPacket | None,
+    ) -> tuple[
+        list[MemoryHit],
+        list[MemoryFact],
+        list[str],
+        PersonalizationPlan | None,
+        ContextSnapshot | None,
+        float,
+    ]:
+        """Past-chat + user-profile retrieval with personalization analysis.
+
+        Independent of the knowledge-base search — it consumes the same
+        resolved query and the SAME ``query_vec`` the caller already embedded,
+        so the caller can run it concurrently with ``_retrieve`` instead of
+        paying for a second embedding and a serialized search.
+        """
+        if self.memory is None:
+            return [], [], [], None, None, 0.0
+        t_mem = time.perf_counter()
+        personalization_plan = await self.personalization.analyze(
+            llm,
+            query,
+            request.history,
+            resolved_query=resolved_query,
+            needs_memory=route.needs_memory,
+            user_id=request.user_id,
+        )
+        plan = RetrievalPlanner.create_plan(
+            intent=route.intent,
+            needs_memory=route.needs_memory,
+            query=query,
+            resolved_query=resolved_query,
+            entity_anchors=context_packet.active_entities if context_packet else None,
+        )
+        if personalization_plan.is_active:
+            plan.required_context = list(
+                dict.fromkeys(
+                    [*plan.required_context, *personalization_plan.required_context]
+                )
+            )
+        memory_hits, memory_facts, relationships = await self._memory_retrieve(
+            query_vec, request.user_id, resolved_query, plan
+        )
+        personalization_snapshot: ContextSnapshot | None = None
+        if personalization_plan.is_active:
+            snapshot, targeted = await self._personalize_targeted(
+                request.user_id, personalization_plan, embed_key
+            )
+            personalization_snapshot = snapshot
+            by_id: dict[str, MemoryFact] = {f.id: f for f in memory_facts}
+            for f in targeted:
+                if f.id in by_id:
+                    if f.score > by_id[f.id].score:
+                        by_id[f.id] = f
+                else:
+                    by_id[f.id] = f
+            memory_facts = list(by_id.values())
+        return (
+            memory_hits,
+            memory_facts,
+            relationships,
+            personalization_plan,
+            personalization_snapshot,
+            round((time.perf_counter() - t_mem) * 1000, 1),
+        )
+
+    # ── Personalization: targeted per-field memory retrieval ────────────────
+    # The planner says which user-specific context fields the request depends
+    # on (e.g. "household income"). Each field is embedded on its own and
+    # searched semantically, so "make a budget for us" finds income/salary
+    # facts even though the word "budget" never appears in them. The result is
+    # a ContextSnapshot marking every field KNOWN / UNKNOWN / LOW_CONFIDENCE.
+    async def _personalize_targeted(
+        self,
+        user_id: str,
+        plan: PersonalizationPlan,
+        embed_key: str | None,
+    ) -> tuple[ContextSnapshot, list[MemoryFact]]:
+        empty = ContextSnapshot(plan.level)
+        if self.memory is None:
+            return empty, []
+        fields = [f for f in plan.required_context if f.strip()][: settings.personalization_max_context]
+        if not fields:
+            return empty, []
+        embed_input_type = (
+            settings.nvidia_embed_input_type
+            if self.embedder.provider_id == "nvidia"
+            else settings.openrouter_embed_input_type
+        )
+        vecs = await self._embed_cached(fields, api_key=embed_key, input_type=embed_input_type)
+        known: dict[str, tuple[str, float, str]] = {}
+        extra: list[MemoryFact] = []
+        seen_ids: set[str] = set()
+        for field, vec in zip(fields, vecs, strict=False):
+            if not vec:
+                continue
+            facts = await self.memory.search_facts(
+                vec, user_id, settings.personalization_field_top_k
+            )
+            facts = [f for f in facts if f.score >= settings.memory_min_score]
+            for f in facts:
+                if f.id not in seen_ids:
+                    seen_ids.add(f.id)
+                    extra.append(f)
+            if facts:
+                best = max(facts, key=lambda f: f.score)
+                known[field] = (best.content, best.score, best.id)
+        snapshot = PersonalizationPlanner.build_snapshot(plan, known=known)
+        return snapshot, extra
+
     def _schedule_memory_index(
         self,
         llm: ChatLLM,
@@ -505,9 +688,14 @@ class QueryPipeline:
         answer: str,
         embed_key: str | None,
         chat_key: str | None,
+        resolved: ContextPacket | None = None,
+        *,
+        embedder: Embedder | None = None,
     ) -> None:
         """Fire-and-forget: persist this exchange into super memory after the
-        answer streams. Never blocks or breaks the response."""
+        answer streams. Never blocks or breaks the response. ``resolved`` is the
+        reconstruction layer's ContextPacket, threaded into extraction so facts
+        are written in self-contained form."""
         if self.memory is None or not settings.memory_enabled or not request.user_id or not answer.strip():
             return
         user_id = request.user_id
@@ -526,6 +714,8 @@ class QueryPipeline:
                     history=history,
                     embed_key=embed_key,
                     chat_key=chat_key,
+                    resolved=resolved,
+                    embedder=embedder,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("memory index task failed: %s", exc)
@@ -695,9 +885,13 @@ class QueryPipeline:
                 record["fallback"] = True
                 record["error_message"] = str(exc)[:300]
                 llm = self._omniroute_llm()
+                provider_label = (request.provider or settings.llm_provider).strip() or "cloud"
                 yield {
                     "type": "notice",
-                    "message": "No key available for your provider — answering via the free OmniRoute fallback.",
+                    "message": (
+                        f"No {provider_label} key was found — this reply used the free "
+                        "OmniRoute fallback. Add your key in Settings → API keys."
+                    ),
                 }
             else:
                 logger.warning("chat llm unavailable: %s", exc)
@@ -752,15 +946,84 @@ class QueryPipeline:
             getattr(self.reranker, "provider_id", ""),
         )
 
-        # ── Knowledge-base retrieval (only when routed to RAG) ─────────────
-        top: list[RetrievedChunk] = []
-        retrieval_cache_hit = False
+        # ── Context reconstruction / reference resolution (spec: Prompts A/B/C) ──
+        # The message is never interpreted in isolation. A cheap heuristic gate
+        # (ContextClassifier) decides whether it leans on earlier turns; only
+        # then do the LLM prompts run — A: context understanding (produces the
+        # decontextualized query), B: reference resolution (what each pronoun /
+        # alias / demonstrative means). Retrieval then runs on the decontextualized
+        # query so "he" retrieves like the person it refers to. Self-contained
+        # messages pay ~nothing, and any failure degrades to the raw query —
+        # reconstruction must never break the pipeline.
+        resolved_query = query
+        context_packet: ContextPacket | None = None
+        if (
+            settings.memory_context_enabled
+            and not direct_path
+            and self.memory is not None
+            and request.user_id
+        ):
+            t_ctx = time.perf_counter()
+            try:
+                context_dependent, _signals = self.context_reconstructor.classifier.classify(
+                    query, request.history
+                )
+                if context_dependent:
+                    state = None
+                    if self.conversation_state_store is not None:
+                        state = await self.conversation_state_store.get(
+                            request.user_id, request.conversation_id
+                        )
+                    packet = await self.context_reconstructor.reconstruct(
+                        llm=llm,
+                        query=query,
+                        history=request.history,
+                        state=state,
+                        chat_key=api_key,
+                    )
+                    if packet is not None:
+                        context_packet = packet
+                        resolved_query = packet.resolved_query or query
+                        record["context_dependent"] = True
+                        record["context_reconstructed"] = True
+            except Exception as exc:  # noqa: BLE001 - reconstruction is best-effort
+                logger.debug("context reconstruction failed: %s", exc)
+            t["context_ms"] = round((time.perf_counter() - t_ctx) * 1000, 1)
+
+        # ── Knowledge + past-chat retrieval (concurrent, one embedding) ─────
+        # Document search and memory search are independent: both key off the
+        # resolved query, neither needs the other's result, and they share the
+        # SAME query embedding. So the query is embedded exactly once and the
+        # two searches run as concurrent tasks instead of serially — the
+        # wall-clock cost is the slower of the two, not their sum.
+        memory_wanted = not direct_path and self.memory is not None and request.user_id
+        query_vec: list[float] | None = None
+        if route.needs_knowledge or memory_wanted:
+            embed_input_type = (
+                settings.nvidia_embed_input_type
+                if self.embedder.provider_id == "nvidia"
+                else settings.openrouter_embed_input_type
+            )
+            t_emb = time.perf_counter()
+            try:
+                query_vec = (
+                    await self._embed_cached(
+                        [resolved_query], api_key=embed_key, input_type=embed_input_type
+                    )
+                )[0]
+            except Exception as exc:  # noqa: BLE001 - embedding is best-effort
+                logger.warning("query embedding failed: %s", exc)
+            t["embedding_ms"] = round((time.perf_counter() - t_emb) * 1000, 1)
+
+        knowledge_task: asyncio.Task[Any] | None = None
+        memory_task: asyncio.Task[Any] | None = None
+
         if route.needs_knowledge:
             yield {"type": "status", "stage": "retrieval", "label": "Searching your documents…"}
-            try:
-                top, retrieval_cache_hit = await self._retrieve(
+            knowledge_task = asyncio.create_task(
+                self._retrieve(
                     llm,
-                    query,
+                    resolved_query,
                     chat_key=api_key,
                     embed_key=embed_key,
                     rerank_key=rerank_key,
@@ -769,8 +1032,39 @@ class QueryPipeline:
                     params=params,
                     t=t,
                     document_ids=request.document_ids or None,
+                    base_query_vector=query_vec,
                 )
+            )
+
+        # Runs on EVERY turn, not just when the router asks for memory: it's
+        # one shared embed + pgvector queries, and the score threshold filters
+        # noise. This lets the assistant connect "who is X?" / "did we discuss
+        # Y?" to facts from earlier conversations even when the router
+        # classified the message as general, web or knowledge.
+        if memory_wanted and query_vec:
+            yield {"type": "status", "stage": "memory", "label": "Recalling earlier conversations…"}
+            memory_task = asyncio.create_task(
+                self._memory_pipeline(
+                    llm,
+                    request,
+                    query,
+                    resolved_query,
+                    route,
+                    query_vec,
+                    embed_key,
+                    api_key,
+                    context_packet,
+                )
+            )
+
+        top: list[RetrievedChunk] = []
+        retrieval_cache_hit = False
+        if knowledge_task is not None:
+            try:
+                top, retrieval_cache_hit = await knowledge_task
             except Exception as exc:
+                if memory_task is not None:
+                    memory_task.cancel()
                 logger.exception("retrieval failed")
                 record["error"] = True
                 record["error_message"] = str(exc)[:300]
@@ -779,40 +1073,45 @@ class QueryPipeline:
         record["cache_hit"] = bool(retrieval_cache_hit)
         record["cache"] = "retrieval" if retrieval_cache_hit else None
 
-        # ── Super-memory retrieval (past chats + user profile) ─────────────
-        # Runs on EVERY turn, not just when the router asks for memory: it's
-        # one cheap embed + pgvector query, and the score threshold filters
-        # noise. This lets the assistant connect "who is X?" / "did we discuss
-        # Y?" to facts from earlier conversations even when the router
-        # classified the message as general, web or knowledge.
         memory_hits: list[MemoryHit] = []
         memory_facts: list[MemoryFact] = []
         relationships: list[str] = []
-        if not direct_path and self.memory is not None and request.user_id:
-            yield {"type": "status", "stage": "memory", "label": "Recalling earlier conversations…"}
+        personalization_plan: PersonalizationPlan | None = None
+        personalization_snapshot: ContextSnapshot | None = None
+        if memory_task is not None:
             try:
-                t_mem = time.perf_counter()
-                embed_input_type = (
-                    settings.nvidia_embed_input_type
-                    if self.embedder.provider_id == "nvidia"
-                    else settings.openrouter_embed_input_type
-                )
-                query_vec = (
-                    await self._embed_cached([query], api_key=embed_key, input_type=embed_input_type)
-                )[0]
-                plan = RetrievalPlanner.create_plan(
-                    intent=route.intent,
-                    needs_memory=route.needs_memory,
-                    query=query,
-                )
-                memory_hits, memory_facts, relationships = await self._memory_retrieve(
-                    query_vec, request.user_id, query, plan
-                )
-                t["memory_ms"] = round((time.perf_counter() - t_mem) * 1000, 1)
+                (
+                    memory_hits,
+                    memory_facts,
+                    relationships,
+                    personalization_plan,
+                    personalization_snapshot,
+                    mem_ms,
+                ) = await memory_task
+                t["memory_ms"] = mem_ms
             except Exception as exc:  # noqa: BLE001 - memory is best-effort
                 logger.warning("memory retrieval failed: %s", exc)
         record["memory_hits"] = len(memory_hits)
         record["memory_facts"] = len(memory_facts)
+        if personalization_plan is not None:
+            record["personalization_level"] = personalization_plan.level.value
+        if personalization_snapshot is not None:
+            record["personalization_score"] = personalization_snapshot.personalization_score
+
+        # ── Entity resolution (Prompt C): fold the resolved references into
+        # the user's canonical entities, now that retrieval has surfaced the
+        # relevant existing memories. Failure leaves the packet untouched.
+        if context_packet is not None and context_packet.resolved_references:
+            try:
+                existing = [f.content for f in memory_facts] + [h.content for h in memory_hits]
+                context_packet = await self.context_reconstructor.resolve_entities(
+                    llm=llm,
+                    packet=context_packet,
+                    existing_memories=existing[:20] or None,
+                    chat_key=api_key,
+                )
+            except Exception as exc:  # noqa: BLE001 - entity resolution is best-effort
+                logger.debug("entity resolution (Prompt C) failed: %s", exc)
 
         # ── Live web context (optional, off by default) ────────────────────
         # Gated three ways: the router asked for web, the server has the feature
@@ -861,7 +1160,7 @@ class QueryPipeline:
             record["web_sources"] = len(web_sources)
 
         context = _build_context(top, params["context_budget"])
-        citations = build_citations(top)
+        citations = build_citations(context)
         yield {"type": "sources", "citations": citations}
 
         if direct_path:
@@ -884,6 +1183,12 @@ class QueryPipeline:
                         live_context=live,
                         intent=route.intent,
                         relationships=relationships,
+                        resolved_context=context_packet.to_prompt_lines() if context_packet else None,
+                        personalization_block=(
+                            personalization_snapshot.as_prompt_block()
+                            if personalization_snapshot is not None
+                            else None
+                        ),
                     ),
                 }
             ]
@@ -924,6 +1229,8 @@ class QueryPipeline:
             logger.warning("primary generation failed (%s); retrying via OmniRoute", exc)
             record["fallback"] = True
             record["error_message"] = str(exc)[:300]
+            primary_name = getattr(llm, "name", None) or (request.provider or settings.llm_provider)
+            primary_model = getattr(llm, "model", None) or request.model or ""
             llm = self._omniroute_llm()
             api_key = None
             t_gen = time.perf_counter()
@@ -953,7 +1260,10 @@ class QueryPipeline:
                 return
             yield {
                 "type": "notice",
-                "message": f"Answered via the free OmniRoute fallback — the primary model failed: {exc}",
+                "message": (
+                    f"{primary_name} ({primary_model}) was unavailable — "
+                    f"{_friendly_fallback_reason(exc)}. This reply used the free OmniRoute fallback."
+                ),
             }
         record["provider"] = llm.provider_id
         record["model"] = getattr(llm, "model", None) or record.get("model") or ""
@@ -963,8 +1273,23 @@ class QueryPipeline:
         confidence = compute_confidence(top)
         await self.cache.set(request.user_id, query, answer, model_key)
 
+        # Persist the reconstructed conversation state (active entities/topic)
+        # so the next turn already knows what "he" / "the project" mean without
+        # re-analyzing the whole history. Best-effort: never breaks the reply.
+        if (
+            context_packet is not None
+            and self.conversation_state_store is not None
+            and request.user_id
+        ):
+            try:
+                await self.conversation_state_store.set(
+                    request.user_id, request.conversation_id, context_packet.to_state()
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("conversation state save failed: %s", exc)
+
         # Persist this exchange into super memory in the background.
-        self._schedule_memory_index(llm, request, query, answer, embed_key, api_key)
+        self._schedule_memory_index(llm, request, query, answer, embed_key, api_key, resolved=context_packet, embedder=self.embedder)
 
         if not direct_path and settings.hallucination_check_enabled and context:
             try:
@@ -1002,6 +1327,8 @@ def _timings(t0: float, stage: dict[str, float]) -> dict[str, float]:
     }
     if stage.get("query_rewrite_ms"):
         timings["query_rewrite_ms"] = stage["query_rewrite_ms"]
+    if stage.get("context_ms"):
+        timings["context_ms"] = stage["context_ms"]
     if stage.get("memory_ms"):
         timings["memory_ms"] = stage["memory_ms"]
     if stage.get("web_ms"):

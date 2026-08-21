@@ -413,7 +413,7 @@ export function FileBasedViewer({
           <div className="min-h-0 flex-1 overflow-auto bg-white">
             <iframe
               title="project-preview"
-              sandbox="allow-scripts allow-modals allow-forms allow-popups"
+              sandbox="allow-same-origin allow-scripts allow-modals allow-forms allow-popups allow-downloads allow-pointer-lock"
               srcDoc={previewSrcDoc}
               className="block w-full"
               style={{ height: '100%', minHeight: 400 }}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Check, ChevronDown, Search, Cpu, Star } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Search, Cpu, Star } from 'lucide-react';
 import type { ModelPreset, ModelProvider } from '@rag/contracts';
 import { useIsMobile } from '../../lib/hooks';
 import { cn } from '../../lib/utils';
@@ -100,6 +100,18 @@ function ModelPickerPanel({
 }) {
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
+  const searching = q.length > 0;
+
+  // Provider groups start folded except the one that's currently selected, so
+  // the list is scannable — unfold a provider to browse its models. Searching
+  // auto-expands every matching group so results are always visible.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(providers.map((p) => [p.id, p.id !== provider])),
+  );
+
+  const isExpanded = (pid: string) => searching || pid === provider || !collapsed[pid];
+  const toggle = (pid: string) =>
+    setCollapsed((c) => ({ ...c, [pid]: c[pid] ? false : true }));
 
   const groups = useMemo(() => {
     return providers
@@ -129,26 +141,42 @@ function ModelPickerPanel({
         {groups.length === 0 && (
           <p className="px-3 py-6 text-center text-xs text-ink-muted">No models match “{query}”.</p>
         )}
-        {groups.map(({ provider: p, models }) => (
-          <div key={p.id} className="mb-2">
-            <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
-              {p.label}
-            </p>
-            <div className="space-y-0.5">
-              {models.map((m) => (
-                <ModelOption
-                  key={m}
-                  provider={p}
-                  model={m}
-                  defaultProvider={defaultProvider}
-                  presets={presets}
-                  active={provider === p.id && model === m}
-                  onSelect={() => onSelect(p.id, m)}
+        {groups.map(({ provider: p, models }) => {
+          const expanded = isExpanded(p.id);
+          return (
+            <div key={p.id} className="mb-1">
+              <button
+                type="button"
+                onClick={() => toggle(p.id)}
+                className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-ink-muted transition-colors hover:bg-surface-800 hover:text-ink-primary"
+                aria-expanded={expanded}
+              >
+                <ChevronRight
+                  className={cn('h-3 w-3 shrink-0 transition-transform', expanded && 'rotate-90')}
                 />
-              ))}
+                <span className="truncate">{p.label}</span>
+                <span className="ml-auto shrink-0 rounded-full bg-surface-800 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-ink-secondary">
+                  {models.length}
+                </span>
+              </button>
+              {expanded && (
+                <div className="space-y-0.5">
+                  {models.map((m) => (
+                    <ModelOption
+                      key={m}
+                      provider={p}
+                      model={m}
+                      defaultProvider={defaultProvider}
+                      presets={presets}
+                      active={provider === p.id && model === m}
+                      onSelect={() => onSelect(p.id, m)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -181,17 +209,17 @@ export function ModelPicker({
   const trigger = (
     <button
       type="button"
-      className="inline-flex h-9 min-h-9 items-center gap-1.5 rounded-lg border border-surface-700 bg-surface-850 px-3 text-xs font-medium text-ink-secondary transition-colors hover:border-primary/40 hover:text-white"
+      className="inline-flex h-9 min-h-9 min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-surface-700 bg-surface-850 px-2.5 text-xs font-medium text-ink-secondary transition-colors hover:border-primary/40 hover:text-white"
       aria-label="Select model"
       title={currentLabel}
     >
       {currentPreset?.role === 'reasoning' || currentPreset?.role === 'vision' ? (
-        <Star className="h-3.5 w-3.5 text-warning" />
+        <Star className="h-3.5 w-3.5 shrink-0 text-warning" />
       ) : (
-        <Cpu className="h-3.5 w-3.5 text-ink-muted" />
+        <Cpu className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
       )}
-      <span className="max-w-[140px] truncate sm:max-w-[220px]">{currentLabel}</span>
-      <ChevronDown className="h-3.5 w-3.5 text-ink-muted" />
+      <span className="min-w-0 flex-1 truncate max-w-[130px] xs:max-w-[190px] sm:max-w-[260px]">{currentLabel}</span>
+      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
     </button>
   );
 

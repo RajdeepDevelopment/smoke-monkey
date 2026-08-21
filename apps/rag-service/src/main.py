@@ -1,6 +1,7 @@
 """rag-service entrypoint."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -11,6 +12,8 @@ from redis.asyncio import Redis
 from src.api.routes import router
 from src.application.mem.agent import MemoryAgent
 from src.application.mem.graph import GraphMemoryStore
+from src.application.mem.monitoring import MemoryMetrics, MetricsSampler, _make_tracing
+from src.application.mem.outbox import OutboxRelay, OutboxStore
 from src.application.memory import MemoryStore
 from src.application.pipeline import QueryPipeline
 from src.application.router import QueryRouter
@@ -159,8 +162,23 @@ async def lifespan(app: FastAPI):
 
     reranker = build_reranker()
 
+    # Observability (items 18/19): in-process metrics + tracing hooks + the
+    # sampler loop that reports queue lag and memory growth. Metrics are always
+    # recorded (cheap); the sampler loop runs only when monitor_enabled.
+    metrics = MemoryMetrics()
+    tracing = _make_tracing(metrics)
+    metrics_sampler = MetricsSampler(
+        metrics,
+        pool=pool,
+        redis=redis,
+        poll_interval_s=settings.monitor_poll_interval_s,
+    )
+
     # Super memory: pgvector tables for conversation + user-profile memory.
-    memory_store = MemoryStore(pool, embedder)
+    # The transactional outbox keeps Postgres as the source of truth and lets
+    # the graph mirror replay safely (retry → DLQ) instead of inline coupling.
+    outbox_store = OutboxStore(pool)
+    memory_store = MemoryStore(pool, embedder, outbox=outbox_store)
     await memory_store.ensure_schema()
     try:
         # Spec Consolider: purge expired facts + aged episodic memory at boot.
@@ -194,10 +212,70 @@ async def lifespan(app: FastAPI):
         user=settings.neo4j_user,
         password=settings.neo4j_password,
     )
-    if settings.neo4j_enabled:
-        await graph_store.connect()
-        await graph_store.ensure_schema()
-    memory_agent = MemoryAgent(store=memory_store, graph=graph_store, embedder=embedder)
+    if settings.neo4j_enabled and settings.memory_graph_enabled:
+        try:
+            await graph_store.connect()
+            await graph_store.ensure_schema()
+            logger.info(
+                "neo4j graph memory enabled (uri=%s, user=%s)",
+                settings.neo4j_uri,
+                settings.neo4j_user,
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort: graph degrades to no-op
+            logger.warning("neo4j graph memory disabled: %s", exc)
+            await graph_store.close()
+
+    # Prospective Memory & Task Scheduler
+    from src.application.mem.prospective import ProspectiveMemoryStore
+    prospective_store = ProspectiveMemoryStore(
+        pool=pool,
+        redis=redis,
+        poll_interval_s=settings.scheduler_poll_interval_s,
+        claim_batch=settings.scheduler_claim_batch,
+        claim_seconds=settings.scheduler_claim_seconds,
+        max_per_user_per_cycle=settings.scheduler_max_per_user_per_cycle,
+        background_max_per_user_per_minute=settings.scheduler_background_max_per_user_per_minute,
+        missed_policy=settings.scheduler_missed_policy,
+        missed_dispatch_max_hours=settings.scheduler_missed_dispatch_max_hours,
+        max_attempts=settings.scheduler_max_attempts,
+        backoff_base_s=settings.scheduler_backoff_base_s,
+        backoff_max_s=settings.scheduler_backoff_max_s,
+        metrics=metrics,
+        tracing=tracing,
+    )
+    await prospective_store.ensure_schema()
+    await prospective_store.recover_on_startup()
+
+    memory_agent = MemoryAgent(
+        store=memory_store,
+        graph=graph_store,
+        embedder=embedder,
+        prospective=prospective_store,
+    )
+
+    # Background workers: outbox relay (graph consistency) + scheduler
+    # (exactly-once intent dispatch). Both are cancelled on shutdown.
+    outbox_relay = OutboxRelay(
+        outbox_store,
+        handler=memory_agent.apply_outbox_event,
+        batch_size=settings.memory_outbox_batch_size,
+        poll_interval_s=settings.memory_outbox_poll_interval_s,
+        claim_seconds=settings.memory_outbox_claim_seconds,
+        max_attempts=settings.memory_outbox_max_attempts,
+        backoff_base_s=settings.memory_outbox_backoff_base_s,
+        backoff_max_s=settings.memory_outbox_backoff_max_s,
+        metrics=metrics,
+        tracing=tracing,
+    )
+    relay_task: asyncio.Task[None] | None = None
+    if settings.memory_outbox_enabled:
+        relay_task = asyncio.create_task(outbox_relay.run_loop())
+    scheduler_task: asyncio.Task[None] | None = None
+    if settings.scheduler_enabled:
+        scheduler_task = asyncio.create_task(prospective_store.run_scheduler())
+    sampler_task: asyncio.Task[None] | None = None
+    if settings.monitor_enabled:
+        sampler_task = asyncio.create_task(metrics_sampler.run_loop())
 
     app.state.pool = pool
     app.state.redis = redis
@@ -216,19 +294,29 @@ async def lifespan(app: FastAPI):
         web=web_search,
     )
     app.state.telemetry = app.state.pipeline.telemetry
+    app.state.metrics = metrics
 
     logger.info(
-        "rag-service ready (provider=%s, embed=%s, rerank=%s, router=%s, memory=%s, graph=%s)",
+        "rag-service ready (provider=%s, embed=%s, rerank=%s, router=%s, memory=%s, graph=%s, monitor=%s)",
         chat_llm.provider_id,
         embedder.provider_id,
         type(reranker).__name__ if reranker else "off",
         "on" if settings.router_enabled else "off",
         "on" if settings.memory_enabled else "off",
         "on" if graph_store.enabled else "off",
+        "on" if settings.monitor_enabled else "off",
     )
     try:
         yield
     finally:
+        # Stop the background workers first so they don't touch torn-down deps.
+        for task in (scheduler_task, relay_task, sampler_task):
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         # Let in-flight memory index writes finish before tearing down the
         # embedder/pool, otherwise the last exchange is lost.
         try:

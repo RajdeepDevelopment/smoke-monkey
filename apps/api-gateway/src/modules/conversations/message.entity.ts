@@ -14,6 +14,7 @@ export interface CitationJson {
   page: number | null;
   text: string;
   score: number;
+  url?: string | null;
 }
 
 export interface WebSourceJson {

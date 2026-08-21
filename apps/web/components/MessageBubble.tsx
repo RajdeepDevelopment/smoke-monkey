@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Check, Copy, FileText, Globe, Zap } from 'lucide-react';
 import type { CitationDto, WebSourceDto } from '@rag/contracts';
 import { BrandIcon } from './BrandIcon';
@@ -87,16 +87,28 @@ export const MessageBubble = memo(function MessageBubble({
   const webCount = (webSources ?? []).filter((s) => s.url || s.content).length;
   const totalSources = knowledgeCount + webCount;
 
+  // Merged source list in panel order (web first, then knowledge). Chip numbers
+  // [n] map 1:1 to this list, so the nth item is the nth numbered source.
+  const mergedSources = useMemo(() => {
+    const web = webSources ?? [];
+    const k = citations ?? [];
+    return [...web.map((s) => ({ url: s.url || null })), ...k.map((c) => ({ url: null }))] as Array<
+      { url?: string | null }
+    >;
+  }, [webSources, citations]);
+
   const openSources = (highlight?: number) => {
-    onOpenSources?.(citations ?? [], webSources ?? [], highlight);
+    const web = webSources ?? [];
+    // [n] refers to the merged web-first ordering, so no offset is needed.
+    onOpenSources?.(citations ?? [], web, highlight);
   };
 
   if (isUser) {
     return (
-      <div className="flex w-full justify-end">
-        <div className="flex max-w-[85%] flex-col items-end gap-1 sm:max-w-[75%]">
-          <div className="rounded-2xl rounded-tr-md border border-primary/25 bg-primary px-4 py-3 text-sm leading-relaxed text-white shadow-lg shadow-primary/10">
-            <div className="whitespace-pre-wrap">{content}</div>
+      <div className="flex w-full justify-end animate-mobile-bubble">
+        <div className="flex max-w-[88%] flex-col items-end gap-1 sm:max-w-[75%]">
+          <div className="rounded-2xl rounded-tr-md border border-primary/25 bg-primary px-3.5 py-2.5 text-sm leading-relaxed text-white shadow-lg shadow-primary/10 sm:px-4 sm:py-3">
+            <div className="whitespace-pre-wrap break-words overflow-wrap-anywhere">{content}</div>
           </div>
           <span className="pr-1 text-[10px] text-ink-muted">You</span>
         </div>
@@ -105,13 +117,13 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   return (
-    <div className="group flex w-full justify-start">
-      <div className="flex w-full items-start gap-3">
+    <div className="group flex w-full justify-start animate-mobile-bubble">
+      <div className="flex w-full items-start gap-2.5 sm:gap-3">
         <div className="relative mt-0.5 shrink-0">
           <BrandIcon size={28} className="rounded-xl" />
           <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg bg-accent" />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 max-w-full overflow-hidden">
           <div className="mb-1 flex items-center gap-2">
             <span className="text-xs font-semibold text-ink-primary">Smoke Monkey</span>
             {!pending && <Confidence confidence={confidence ?? 0} />}
@@ -122,12 +134,11 @@ export const MessageBubble = memo(function MessageBubble({
 
           {stages && stages.length > 0 && pending && <GenerationStages stages={stages} streaming />}
 
-          <div className="relative rounded-2xl rounded-tl-md border border-surface-700/70 bg-surface-900/70 px-4 py-3 text-sm leading-relaxed text-ink-primary shadow-sm">
+          <div className="relative rounded-2xl rounded-tl-md border border-surface-700/70 bg-surface-900/70 px-3.5 py-2.5 text-sm leading-relaxed text-ink-primary shadow-sm break-words overflow-wrap-anywhere min-w-0 sm:px-4 sm:py-3">
             <CitationMarkdown
               content={content}
-              onCite={(i) => {
-                if (totalSources > 0) openSources(i);
-              }}
+              onCite={(i) => openSources(i)}
+              sources={mergedSources}
             />
             {pending && <span className="ml-0.5 animate-pulse text-ink-muted">▍</span>}
           </div>

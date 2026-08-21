@@ -25,6 +25,15 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from src.application.mem.models import MemoryCategory
+from src.application.mem.outbox import (
+    EVENT_MEMORY_DELETED,
+    EVENT_MEMORY_MERGED,
+    EVENT_MEMORY_REFRESHED,
+    EVENT_MEMORY_STORED,
+    OutboxStore,
+)
+from src.application.mem.reconstruction import MemoryReconciler
 from src.config import settings
 from src.domain import MemoryFact, MemoryHit
 from src.generation.embedders import Embedder
@@ -54,35 +63,52 @@ LIMIT $3
 
 _FACTS_QUERY = """
 SELECT id, type, content, importance, created_at, access_count, last_accessed_at,
+       stage, confidence, evidence_count,
        1 - (embedding <=> $1::vector) AS score
 FROM memories
 WHERE user_id = $2::uuid AND embedding IS NOT NULL
   AND (expires_at IS NULL OR expires_at > now())
+  AND (stage IS NULL OR stage <> 'archived')
 ORDER BY embedding <=> $1::vector
 LIMIT $3
 """
 
 _DEDUPE_QUERY = """
-SELECT id, content, importance, 1 - (embedding <=> $1::vector) AS sim
+SELECT id, content, importance, stage, evidence_count,
+       1 - (embedding <=> $1::vector) AS sim
 FROM memories
 WHERE user_id = $2::uuid AND embedding IS NOT NULL
+  AND (stage IS NULL OR stage <> 'archived')
 ORDER BY embedding <=> $1::vector
 LIMIT 1
 """
 
 _FACT_UPDATE = """
 UPDATE memories
-SET importance = GREATEST(importance, $2),
-    content = $3,
-    last_accessed_at = now()
-WHERE id = $1
+SET importance = GREATEST(importance, $3),
+    content = $4,
+    last_accessed_at = now(),
+    access_count = access_count + 1,
+    evidence_count = evidence_count + 1,
+    confidence = LEAST(0.99, COALESCE(confidence, 0.5) + $5::double precision),
+    stage = CASE
+        WHEN COALESCE(stage, 'candidate') = 'candidate' AND evidence_count + 1 >= $6 THEN 'confirmed'
+        WHEN COALESCE(stage, 'candidate') IN ('candidate', 'confirmed')
+             AND GREATEST(importance, $3) >= $8
+             AND evidence_count + 1 >= $7 THEN 'stable'
+        WHEN COALESCE(stage, 'candidate') = 'stale' THEN 'confirmed'
+        ELSE COALESCE(stage, 'candidate')
+    END
+WHERE id = $1 AND user_id = $2::uuid
 RETURNING id
 """
 
 _FACT_INSERT = """
 INSERT INTO memories
-    (user_id, type, content, embedding, importance, source_message, expires_at)
-VALUES ($1::uuid, $2, $3, $4::vector, $5, $6, now() + $7 * INTERVAL '1 day')
+    (user_id, type, content, embedding, importance, source_message, expires_at,
+     stage, confidence, evidence_count)
+VALUES ($1::uuid, $2, $3, $4::vector, $5, $6, now() + $7 * INTERVAL '1 day',
+        $8, $9, 1)
 RETURNING id
 """
 
@@ -92,6 +118,7 @@ SELECT id, type, content, importance, created_at, access_count, last_accessed_at
 FROM memories
 WHERE user_id = $2::uuid AND type = 'relationship' AND embedding IS NOT NULL
   AND (expires_at IS NULL OR expires_at > now())
+  AND (stage IS NULL OR stage <> 'archived')
 ORDER BY embedding <=> $1::vector
 LIMIT $3
 """
@@ -100,6 +127,7 @@ _ENTITY_MATCH_QUERY = """
 SELECT id, type, content, 1 - (embedding <=> $1::vector) AS sim
 FROM memories
 WHERE user_id = $2::uuid AND embedding IS NOT NULL
+  AND (stage IS NULL OR stage <> 'archived')
 ORDER BY embedding <=> $1::vector
 LIMIT $3
 """
@@ -163,6 +191,48 @@ def _repair_json(candidate: str) -> Any:
         return json.loads(candidate)
     except json.JSONDecodeError:
         return None
+
+
+# Negative-absence junk the extractor sometimes emits ("The user has not
+# mentioned his wife's name", "The sister's name has not been shared").
+# They are transient states, not durable facts, and their high similarity to
+# later "what is X?" queries starves the real fact during recall — so they are
+# dropped as a backstop even when the model ignores the prompt rule.
+_NEGATIVE_ABSENCE = re.compile(
+    r"\b(has\s+not\s+(?:mentioned|shared|said|provided|given|revealed|told)"
+    r"|hasn'?t\s+(?:mentioned|shared|said|provided|given|revealed|told)"
+    r"|has\s+never\s+(?:mentioned|shared|said|provided|given|revealed|told)"
+    r"|(?:is|was|were)\s+(?:not|never)\s+(?:shared|given|provided|mentioned|revealed)"
+    r"|(?:not|never)\s+been\s+(?:shared|mentioned|given|provided|revealed)"
+    r"|does\s+not\s+(?:have|know)"
+    r"|don'?t\s+(?:have|know)"
+    r"|(?:does|do)\s+not\s+have"
+    r"|no\s+(?:information|record|details|data)\s+(?:about|on|regarding)"
+    r"|cannot\s+(?:be|say|tell|recall)"
+    r"|not\s+able\s+to\s+(?:say|tell|recall|remember)"
+    r"|i\s+don'?t\s+know)\b",
+    re.I,
+)
+
+
+def _is_negative_absence(text: str) -> bool:
+    """True when a candidate fact is a negative/absent-information statement."""
+    return bool(_NEGATIVE_ABSENCE.search(text or ""))
+
+
+# Facts about the assistant's own reply ("The assistant has seen the name ...",
+# "The assistant gave examples ...") are noise: they describe the model's
+# answer, not the user. Only user-typed facts belong in memory.
+_ASSISTANT_SUBJECT = re.compile(
+    r"\b(?:the\s+assistant|the\s+assistant\s+(?:said|gave|mentioned|suggested|"
+    r"recalled|recalled|knew|didn'?t\s+know|does\s+not\s+know|has\s+seen|noted))\b",
+    re.I,
+)
+
+
+def _is_assistant_subject(text: str) -> bool:
+    """True when a candidate fact is about the assistant's reply, not the user."""
+    return bool(_ASSISTANT_SUBJECT.search(text or ""))
 
 
 def _embed_input_type(provider_id: str) -> str | None:
@@ -268,13 +338,16 @@ def _ttl_days(importance: float) -> int:
 
 
 class MemoryStore:
-    def __init__(self, pool, embedder: Embedder) -> None:
+    def __init__(self, pool, embedder: Embedder, outbox: OutboxStore | None = None) -> None:
         self.pool = pool
         self.embedder = embedder
+        self.outbox = outbox
 
     # ── schema ──────────────────────────────────────────────────────────────
 
     async def ensure_schema(self) -> None:
+        if self.outbox is not None:
+            await self.outbox.ensure_schema()
         dims = self.embedder.dims
         memory_ddl = f"""
         CREATE TABLE IF NOT EXISTS conversation_memory (
@@ -304,6 +377,9 @@ class MemoryStore:
             access_count    INTEGER NOT NULL DEFAULT 0,
             last_accessed_at TIMESTAMPTZ,
             expires_at      TIMESTAMPTZ,
+            stage           VARCHAR(16) NOT NULL DEFAULT 'candidate',
+            confidence      DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+            evidence_count  INTEGER NOT NULL DEFAULT 1,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """
@@ -317,9 +393,14 @@ class MemoryStore:
             "ALTER TABLE memories ADD COLUMN IF NOT EXISTS access_count INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE memories ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ",
             "ALTER TABLE memories ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
+            # Lifecycle + evidence columns (items 13/15).
+            "ALTER TABLE memories ADD COLUMN IF NOT EXISTS stage VARCHAR(16) NOT NULL DEFAULT 'candidate'",
+            "ALTER TABLE memories ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NOT NULL DEFAULT 0.5",
+            "ALTER TABLE memories ADD COLUMN IF NOT EXISTS evidence_count INTEGER NOT NULL DEFAULT 1",
             "CREATE INDEX IF NOT EXISTS idx_memory_user ON conversation_memory (user_id)",
             "CREATE INDEX IF NOT EXISTS idx_memory_hash ON conversation_memory (content_hash)",
             "CREATE INDEX IF NOT EXISTS idx_memories_user ON memories (user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_memories_stage ON memories (stage)",
         ]
         # pgvector's HNSW is capped at 2000 dims; higher-dim embeddings scan.
         if dims <= 2000:
@@ -407,6 +488,7 @@ class MemoryStore:
             WHERE user_id = $1::uuid
               AND importance >= $2
               AND (expires_at IS NULL OR expires_at > now())
+              AND (stage IS NULL OR stage <> 'archived')
             ORDER BY importance DESC, created_at DESC
             LIMIT $3
             """,
@@ -441,17 +523,23 @@ class MemoryStore:
         history: list[dict[str, str]] | None = None,
         embed_key: str | None = None,
         chat_key: str | None = None,
+        resolved: Any = None,
+        embedder: Any = None,
     ) -> list[dict[str, Any]]:
         """Store one exchange (episodic + facts) and return the stored fact records.
 
         Each record is ``{"fact": {...}, "memory_id": str, "user_id": str}`` so the
         graph layer can upsert matching nodes and link relationship edges without
         re-reading the vector store.
+
+        ``resolved`` is the reconstruction layer's ContextPacket: it feeds the
+        extraction prompt (so facts are written in self-contained form) and
+        drives the reconciliation pass before anything is stored.
         """
         if not user_id:
             return []
         try:
-            await self._store_messages(user_id, conversation_id, query, answer, embed_key)
+            await self._store_messages(user_id, conversation_id, query, answer, embed_key, embedder=embedder)
         except Exception:
             logger.warning("message memory write failed", exc_info=True)
 
@@ -459,7 +547,7 @@ class MemoryStore:
         if settings.memory_extract_enabled and answer:
             try:
                 stored = await self._extract_and_store(
-                    llm, user_id, query, answer, history or [], embed_key, chat_key
+                    llm, user_id, query, answer, history or [], embed_key, chat_key, resolved=resolved, embedder=embedder
                 )
             except Exception:
                 logger.warning("fact memory write failed", exc_info=True)
@@ -476,6 +564,8 @@ class MemoryStore:
         history: list[dict[str, str]] | None = None,
         embed_key: str | None = None,
         chat_key: str | None = None,
+        resolved: Any = None,
+        embedder: Any = None,
     ) -> None:
         await self.remember(
             llm=llm,
@@ -486,6 +576,8 @@ class MemoryStore:
             history=history,
             embed_key=embed_key,
             chat_key=chat_key,
+            resolved=resolved,
+            embedder=embedder,
         )
 
     async def search_relationships(
@@ -513,6 +605,99 @@ class MemoryStore:
                 )
             )
         return facts
+
+    async def recall_facts(
+        self,
+        query: str,
+        user_id: str,
+        top_k: int = 6,
+        embed_key: str | None = None,
+    ) -> list[MemoryFact]:
+        """Embed the query and recall the user's most relevant durable facts.
+
+        This is the online-plane entry point the context engine uses: it turns
+        the raw query string into a vector via the configured embedder, then
+        delegates to the vector search so the online plane needs no embedding
+        orchestration of its own.
+        """
+        if not query or not user_id or top_k <= 0 or self.embedder is None:
+            return []
+        vectors = await self.embedder.embed(
+            [query],
+            api_key=embed_key,
+            input_type=_embed_input_type(self.embedder.provider_id),
+        )
+        if not vectors or not vectors[0]:
+            return []
+        return await self.search_facts(vectors[0], user_id, top_k)
+
+    async def recall_preferences(
+        self,
+        user_id: str,
+        top_k: int = 4,
+    ) -> list[MemoryFact]:
+        """Recall the user's style/preference facts (type 'preference'/'style').
+
+        Feeds the personality provider: a per-turn style question routes here
+        instead of paying for a full semantic recall over all fact types.
+        """
+        if not user_id or top_k <= 0:
+            return []
+        rows = await self.pool.fetch(
+            """
+            SELECT id, type, content, importance, created_at, access_count,
+                   last_accessed_at, 1.0 AS score
+            FROM memories
+            WHERE user_id = $1::uuid
+              AND type IN ('preference', 'style')
+              AND (expires_at IS NULL OR expires_at > now())
+              AND (stage IS NULL OR stage <> 'archived')
+            ORDER BY importance DESC, created_at DESC
+            LIMIT $2
+            """,
+            user_id,
+            top_k,
+        )
+        return [
+            MemoryFact(
+                id=str(row["id"]),
+                type=row["type"],
+                content=row["content"],
+                importance=float(row["importance"] or 0.5),
+                score=float(row["score"] or 1.0),
+                created_at=row["created_at"],
+                access_count=int(row["access_count"] or 0),
+                last_accessed_at=row["last_accessed_at"],
+            )
+            for row in rows
+        ]
+
+    async def recent_turns(
+        self,
+        user_id: str,
+        limit: int = 6,
+    ) -> list[dict[str, str]]:
+        """Return the user's most recent conversation turns (recent working memory).
+
+        Used by the ``recent`` context provider so a continuity query can see
+        what was just discussed without a full vector recall.
+        """
+        if not user_id or limit <= 0:
+            return []
+        rows = await self.pool.fetch(
+            """
+            SELECT role, content
+            FROM conversation_memory
+            WHERE user_id = $1::uuid
+            ORDER BY created_at DESC
+            LIMIT $2
+            """,
+            user_id,
+            limit,
+        )
+        return [
+            {"role": str(row["role"]), "content": str(row["content"])} for row in rows
+        ]
 
     async def match_entity(
         self,
@@ -545,15 +730,28 @@ class MemoryStore:
         query: str,
         answer: str,
         embed_key: str | None,
+        *,
+        embedder: Any = None,
     ) -> None:
-        texts = [t for t in (query, answer) if t and t.strip()]
-        if not texts:
+        # Memory matches what the USER typed. Only the user's own message is
+        # embedded so later queries recall the user's stated facts; the
+        # assistant's reply is kept as plain text for recency/continuity but is
+        # never vector-searchable (the LLM can regenerate its own answer, and
+        # searching it only surfaces contradictions like "I don't know").
+        query = (query or "").strip()
+        if not query:
             return
-        vectors = await self.embedder.embed(
-            texts,
-            api_key=embed_key,
-            input_type=_embed_input_type(self.embedder.provider_id),
-        )
+        vector: list[float] | None = None
+        emb = embedder or self.embedder
+        try:
+            embedded = await emb.embed(
+                [query],
+                api_key=embed_key,
+                input_type=_embed_input_type(emb.provider_id),
+            )
+            vector = embedded[0] if embedded else None
+        except Exception:
+            logger.warning("episodic embedding failed (storing text only)", exc_info=True)
         insert = """
         INSERT INTO conversation_memory
             (user_id, conversation_id, role, content, content_hash, embedding)
@@ -561,17 +759,25 @@ class MemoryStore:
         ON CONFLICT (user_id, content_hash) DO NOTHING
         """
         async with self.pool.acquire() as conn:
-            for text, vector in zip(texts, vectors, strict=False):
-                if not vector:
-                    continue
+            await conn.execute(
+                insert,
+                user_id,
+                conversation_id,
+                "user",
+                query,
+                _hash(query),
+                _vec(vector) if vector else None,
+            )
+            answer = (answer or "").strip()
+            if answer:
                 await conn.execute(
                     insert,
                     user_id,
                     conversation_id,
-                    "user" if text == query else "assistant",
-                    text,
-                    _hash(text),
-                    _vec(vector),
+                    "assistant",
+                    answer,
+                    _hash(answer),
+                    None,
                 )
 
     async def _extract_and_store(
@@ -583,25 +789,103 @@ class MemoryStore:
         history: list[dict[str, str]],
         embed_key: str | None,
         chat_key: str | None,
+        *,
+        resolved: Any = None,
+        embedder: Any = None,
     ) -> list[dict[str, Any]]:
-        facts = await self._extract_facts(llm, query, answer, history, chat_key)
+        resolved_context = None
+        if resolved is not None:
+            try:
+                resolved_context = resolved.to_prompt_lines()
+            except Exception:
+                resolved_context = None
+        facts = await self._extract_facts(
+            llm, query, answer, history, chat_key, resolved_context=resolved_context
+        )
         if not facts:
             return []
         texts = [f["content"] for f in facts]
-        vectors = await self.embedder.embed(
+        emb = embedder or self.embedder
+        vectors = await emb.embed(
             texts,
             api_key=embed_key,
-            input_type=_embed_input_type(self.embedder.provider_id),
+            input_type=_embed_input_type(emb.provider_id),
         )
         # Spec write pipeline: Classifier → Deduplicator → Resolver → Validator
         # → Scorer. Each candidate is compared against the user's existing
         # memories and either stored, merged into the best match, or skipped.
         # The resolved row ids are returned so the graph layer can link nodes.
-        stored: list[dict[str, Any]] = []
-        async with self.pool.acquire() as conn:
-            for fact, vector in zip(facts, vectors, strict=False):
+        #
+        # Reconciliation (Prompt E): when enabled, high-importance candidates
+        # are first matched against the user's existing memories; the decision
+        # decides how the candidate is applied. This runs once per candidate,
+        # before the write transaction, so the LLM call never holds a lock.
+        decisions: dict[int, dict[str, Any]] = {}
+        if settings.memory_reconcile_enabled:
+            reconciler = MemoryReconciler()
+            for i, (fact, vector) in enumerate(zip(facts, vectors, strict=False)):
                 if not vector:
                     continue
+                if float(fact.get("importance") or 0.5) < settings.memory_reconcile_min_importance:
+                    continue
+                try:
+                    existing = await self.search_facts(vector, user_id, settings.memory_reconcile_top_k)
+                    if not existing:
+                        continue
+                    candidates = [
+                        {
+                            "id": m.id,
+                            "type": m.type,
+                            "content": m.content,
+                            "importance": m.importance,
+                        }
+                        for m in existing
+                    ]
+                    decisions[i] = await reconciler.reconcile(
+                        llm=llm,
+                        candidate={
+                            "type": fact.get("type"),
+                            "content": fact.get("content"),
+                            "importance": fact.get("importance"),
+                        },
+                        existing=candidates,
+                        chat_key=chat_key,
+                    )
+                except Exception as exc:  # noqa: BLE001 - reconcile is best-effort
+                    logger.debug("fact reconcile failed: %s", exc)
+
+        stored: list[dict[str, Any]] = []
+        async with self.pool.acquire() as conn:
+            for i, (fact, vector) in enumerate(zip(facts, vectors, strict=False)):
+                if not vector:
+                    continue
+                decision = decisions.get(i)
+                if decision:
+                    action = decision.get("action")
+                    target_id = decision.get("target_id")
+                    if action in ("duplicate", "temporary", "irrelevant"):
+                        # Nothing durable to store — skip the write entirely.
+                        continue
+                    if action in ("update", "correction", "supersede") and target_id:
+                        memory_id = await self._apply_reconcile_update(
+                            conn, user_id, fact, target_id
+                        )
+                        if memory_id:
+                            stored.append(
+                                {"fact": fact, "memory_id": memory_id, "user_id": user_id}
+                            )
+                        continue
+                    if action == "contradiction":
+                        # Keep both: the existing memory stays, the new fact is
+                        # stored alongside it. The conflict is noted for the
+                        # graph/consolidation layers.
+                        memory_id = await self._upsert_fact(conn, user_id, fact, vector)
+                        if memory_id:
+                            stored.append(
+                                {"fact": fact, "memory_id": memory_id, "user_id": user_id}
+                            )
+                        continue
+                # No reconcile decision (or action == "new"): normal upsert.
                 memory_id = await self._upsert_fact(conn, user_id, fact, vector)
                 if memory_id:
                     stored.append(
@@ -613,6 +897,51 @@ class MemoryStore:
                     )
         return stored
 
+    async def _apply_reconcile_update(
+        self,
+        conn,
+        user_id: str,
+        fact: dict[str, Any],
+        target_id: str,
+    ) -> str | None:
+        """Merge a reconciled candidate into an existing memory (update/correct/supersede).
+
+        Mirrors the merge path of ``_upsert_fact`` but against the decision's
+        ``target_id``: content and importance are folded into the existing row
+        (highest importance wins), evidence/confidence are bumped, and an outbox
+        ``memory_merged`` event is emitted for downstream stores.
+        """
+        try:
+            updated = await conn.fetchrow(
+                _FACT_UPDATE,
+                target_id,
+                user_id,
+                fact["importance"],
+                fact["content"],
+                settings.memory_evidence_boost,
+                settings.memory_confirm_accesses,
+                settings.memory_stable_accesses,
+                settings.memory_stable_min_importance,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("reconcile merge failed: %s", exc)
+            return None
+        if not updated:
+            return None
+        await self._emit_memory_event(
+            conn,
+            event_type=EVENT_MEMORY_MERGED,
+            user_id=user_id,
+            aggregate_id=str(updated["id"]),
+            payload={
+                "type": fact["type"],
+                "content": fact["content"],
+                "importance": fact["importance"],
+                "relationships": fact.get("relationships", []),
+            },
+        )
+        return str(updated["id"])
+
     async def _upsert_fact(
         self,
         conn,
@@ -623,15 +952,59 @@ class MemoryStore:
         row = await conn.fetchrow(_DEDUPE_QUERY, _vec(vector), user_id)
         sim = max(float(row["sim"] or 0), 0.0) if row else 0.0
         if sim >= settings.memory_dedupe_ignore:
-            # Near-exact duplicate: skip the write, refresh recency/usage.
+            # Near-exact duplicate: skip the write, refresh recency/usage and
+            # corroborate the evidence (item 15: confidence rises with recall).
+            new_evidence = int(row["evidence_count"] or 1) + 1
+            new_stage = self._promote_stage(
+                row.get("stage") or "candidate",
+                evidence_count=new_evidence,
+                importance=max(fact["importance"], float(row.get("importance") or 0.5)),
+            )
             await conn.execute(
-                "UPDATE memories SET last_accessed_at = now(), access_count = access_count + 1 WHERE id = $1",
+                """
+                UPDATE memories SET last_accessed_at = now(), access_count = access_count + 1,
+                       evidence_count = evidence_count + 1,
+                       confidence = LEAST(0.99, COALESCE(confidence, 0.5) + $2::double precision),
+                       stage = $3
+                WHERE id = $1
+                """,
                 row["id"],
+                settings.memory_evidence_boost,
+                new_stage,
+            )
+            await self._emit_memory_event(
+                conn,
+                event_type=EVENT_MEMORY_REFRESHED,
+                user_id=user_id,
+                aggregate_id=str(row["id"]),
+                payload={"type": fact["type"], "content": fact["content"], "importance": fact["importance"]},
             )
             return str(row["id"])
         if sim >= settings.memory_dedupe_merge:
             # Same concept stated again: merge (keep highest importance, latest text).
-            updated = await conn.fetchrow(_FACT_UPDATE, row["id"], fact["importance"], fact["content"])
+            updated = await conn.fetchrow(
+                _FACT_UPDATE,
+                row["id"],
+                user_id,
+                fact["importance"],
+                fact["content"],
+                settings.memory_evidence_boost,
+                settings.memory_confirm_accesses,
+                settings.memory_stable_accesses,
+                settings.memory_stable_min_importance,
+            )
+            await self._emit_memory_event(
+                conn,
+                event_type=EVENT_MEMORY_MERGED,
+                user_id=user_id,
+                aggregate_id=str(updated["id"]),
+                payload={
+                    "type": fact["type"],
+                    "content": fact["content"],
+                    "importance": fact["importance"],
+                    "relationships": fact.get("relationships", []),
+                },
+            )
             return str(updated["id"])
         inserted = await conn.fetchrow(
             _FACT_INSERT,
@@ -642,16 +1015,93 @@ class MemoryStore:
             fact["importance"],
             fact.get("source") or "",
             _ttl_days(fact["importance"]),
+            "candidate",
+            settings.memory_confidence_floor,
         )
-        return str(inserted["id"])
+        memory_id = str(inserted["id"])
+        await self._emit_memory_event(
+            conn,
+            event_type=EVENT_MEMORY_STORED,
+            user_id=user_id,
+            aggregate_id=memory_id,
+            payload={
+                "type": fact["type"],
+                "content": fact["content"],
+                "importance": fact["importance"],
+                "relationships": fact.get("relationships", []),
+            },
+        )
+        return memory_id
 
-    async def touch(self, memory_ids: list[uuid.UUID], fact_ids: list[uuid.UUID]) -> None:
+    def _promote_stage(
+        self,
+        base_stage: str | None,
+        *,
+        evidence_count: int,
+        importance: float,
+    ) -> str:
+        """Lifecycle promotion (item 13): candidate → confirmed → stable.
+
+        Mirrors the SQL in ``_FACT_UPDATE`` so the stage is consistent no
+        matter which write path corroborated the memory.
+        """
+        if not settings.memory_lifecycle_enabled:
+            return base_stage or "candidate"
+        stage = base_stage or "candidate"
+        if stage == "stale":
+            return "confirmed"
+        if stage == "candidate" and evidence_count >= settings.memory_confirm_accesses:
+            return "confirmed"
+        if (
+            stage in {"candidate", "confirmed"}
+            and evidence_count >= settings.memory_stable_accesses
+            and importance >= settings.memory_stable_min_importance
+        ):
+            return "stable"
+        return stage
+
+    async def _emit_memory_event(
+        self,
+        conn,
+        *,
+        event_type: str,
+        user_id: str,
+        aggregate_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Append an outbox event on the caller's transaction (atomic with the
+        memory write). No-ops when the outbox is disabled."""
+        if self.outbox is None:
+            return
+        content = str(payload.get("content") or "")
+        idempotency_key = f"{user_id}:{event_type}:{aggregate_id}:{_hash(content)[:16]}"
+        try:
+            await self.outbox.emit(
+                conn,
+                event_type=event_type,
+                user_id=user_id,
+                aggregate_id=aggregate_id,
+                payload=payload,
+                idempotency_key=idempotency_key,
+            )
+        except Exception as exc:  # noqa: BLE001 - outbox must never break the write
+            logger.debug("outbox emit failed for %s: %s", event_type, exc)
+
+    async def touch(
+        self,
+        user_id: str,
+        memory_ids: list[uuid.UUID],
+        fact_ids: list[uuid.UUID],
+    ) -> None:
         """Bump access stats for recalled memories (feeds the frequency signal).
 
         Human reconsolidation: every recall strengthens the memory. Facts get a
         small importance boost (capped at 1.0) so the memories the user actually
         relies on become more durable, while the ones they never use fade away
         via the consolidation pass.
+
+        All updates are scoped to ``user_id`` so one user's recall can never
+        touch another user's rows (tenant isolation).
         """
         if not memory_ids and not fact_ids:
             return
@@ -659,8 +1109,10 @@ class MemoryStore:
             if memory_ids:
                 await conn.execute(
                     "UPDATE conversation_memory SET access_count = access_count + 1, "
-                    "last_accessed_at = now() WHERE id = ANY($1::uuid[])",
+                    "last_accessed_at = now() "
+                    "WHERE id = ANY($1::uuid[]) AND user_id = $2::uuid",
                     memory_ids,
+                    user_id,
                 )
             if fact_ids:
                 boost = settings.memory_reconsolidation_boost
@@ -668,9 +1120,10 @@ class MemoryStore:
                     "UPDATE memories SET access_count = access_count + 1, "
                     "last_accessed_at = now(), "
                     "importance = LEAST(1.0, importance + $1::double precision) "
-                    "WHERE id = ANY($2::uuid[])",
+                    "WHERE id = ANY($2::uuid[]) AND user_id = $3::uuid",
                     boost,
                     fact_ids,
+                    user_id,
                 )
 
     async def consolidate(self) -> None:
@@ -686,14 +1139,35 @@ class MemoryStore:
         if not settings.memory_consolidate_enabled:
             return
         async with self.pool.acquire() as conn:
-            await conn.execute(
-                "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < now()"
+            expired = await conn.fetch(
+                "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < now() RETURNING id, user_id"
             )
+            for row in expired:
+                await self._emit_memory_event(
+                    conn,
+                    event_type=EVENT_MEMORY_DELETED,
+                    user_id=str(row["user_id"]),
+                    aggregate_id=str(row["id"]),
+                    payload={},
+                )
             await conn.execute(
                 "DELETE FROM conversation_memory "
                 "WHERE created_at < now() - $1::int * INTERVAL '1 day'",
                 settings.memory_episodic_retention_days,
             )
+            # Lifecycle: confirmed/stable knowledge that has gone unused for
+            # `memory_stale_days` becomes 'stale' (item 13).
+            if settings.memory_lifecycle_enabled:
+                await conn.execute(
+                    """
+                    UPDATE memories
+                    SET stage = 'stale'
+                    WHERE stage IN ('confirmed', 'stable')
+                      AND COALESCE(last_accessed_at, created_at)
+                            < now() - $1::int * INTERVAL '1 day'
+                    """,
+                    settings.memory_stale_days,
+                )
             # Forgetting curve: importance erodes with every day since the last
             # recall. Critical facts (identity, relationships, contacts) are
             # protected — they are the user's core profile.
@@ -712,11 +1186,33 @@ class MemoryStore:
                 settings.memory_critical_importance,
                 settings.memory_decay_grace_days,
             )
-            # Forget: drop memories that have faded below the recall floor.
-            await conn.execute(
-                "DELETE FROM memories WHERE importance < $1::double precision",
-                settings.memory_forget_floor,
-            )
+            # Forget: memories that faded below the recall floor are archived
+            # (soft delete, item 13) instead of hard-deleted when the lifecycle
+            # is enabled — they stay out of recall but remain inspectable.
+            if settings.memory_lifecycle_enabled:
+                forgotten = await conn.fetch(
+                    """
+                    UPDATE memories
+                    SET stage = 'archived'
+                    WHERE stage <> 'archived'
+                      AND importance < $1::double precision
+                    RETURNING id, user_id
+                    """,
+                    settings.memory_forget_floor,
+                )
+            else:
+                forgotten = await conn.fetch(
+                    "DELETE FROM memories WHERE importance < $1::double precision RETURNING id, user_id",
+                    settings.memory_forget_floor,
+                )
+            for row in forgotten:
+                await self._emit_memory_event(
+                    conn,
+                    event_type=EVENT_MEMORY_DELETED,
+                    user_id=str(row["user_id"]),
+                    aggregate_id=str(row["id"]),
+                    payload={},
+                )
         await self._merge_duplicate_facts()
 
     async def _merge_duplicate_facts(self) -> None:
@@ -770,6 +1266,13 @@ class MemoryStore:
                         await conn.execute(
                             "DELETE FROM memories WHERE id = $1::uuid", fact["id"]
                         )
+                        await self._emit_memory_event(
+                            conn,
+                            event_type=EVENT_MEMORY_DELETED,
+                            user_id=str(user_row["user_id"]),
+                            aggregate_id=str(fact["id"]),
+                            payload={},
+                        )
 
     async def _extract_facts(
         self,
@@ -778,8 +1281,12 @@ class MemoryStore:
         answer: str,
         history: list[dict[str, str]],
         chat_key: str | None,
+        *,
+        resolved_context: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        parsed = await self._extract_with_retry(llm, query, answer, history, chat_key)
+        parsed = await self._extract_with_retry(
+            llm, query, answer, history, chat_key, resolved_context=resolved_context
+        )
         if parsed is None:
             return []
         facts: list[dict[str, Any]] = []
@@ -789,16 +1296,34 @@ class MemoryStore:
             content = str(item.get("content") or "").strip()
             if not content or len(content) > 1000:
                 continue
+            if _is_negative_absence(content):
+                # "has not mentioned / not shared / I don't know" — transient
+                # state, not durable knowledge. Drop it before it poisons recall.
+                continue
+            if _is_assistant_subject(content):
+                # "The assistant ..." — describes the model's reply, not the
+                # user. Only user-typed facts belong in memory.
+                continue
             ftype = str(item.get("type") or "fact").strip().lower()
-            if ftype not in {"preference", "project", "procedure", "fact"}:
+            # Item 16: facts, preferences, style, and inference are separate
+            # knowledge categories; projects/contacts/constraints are facts.
+            allowed = {
+                "fact", "preference", "project", "procedure", "style",
+                "inference", "contact", "constraint",
+            }
+            if ftype not in allowed:
                 ftype = "fact"
+            if ftype in {"relationship", "procedure"}:
+                category = ftype
+            else:
+                category = MemoryCategory.from_type_tag(ftype).value
             try:
                 importance = min(max(float(item.get("importance", 0.5)), 0.0), 1.0)
             except (TypeError, ValueError):
                 importance = 0.5
             if importance < settings.memory_extract_min_importance:
                 continue
-            fact: dict[str, Any] = {"type": ftype, "content": content, "importance": importance}
+            fact: dict[str, Any] = {"type": category, "content": content, "importance": importance}
             if settings.memory_graph_enabled:
                 links = item.get("relationships") or item.get("links")
                 if isinstance(links, list):
@@ -813,6 +1338,8 @@ class MemoryStore:
         answer: str,
         history: list[dict[str, str]],
         chat_key: str | None,
+        *,
+        resolved_context: list[str] | None = None,
     ) -> list[dict[str, Any]] | None:
         """Call the extractor, parsing the JSON payload with retries.
 
@@ -831,10 +1358,22 @@ class MemoryStore:
         attempts = (
             [
                 {"role": "system", "content": memory_extract_system() + "\n\n" + _STRICT_JSON_PROMPT},
-                {"role": "user", "content": memory_extract_payload(query, answer, history)},
+                {
+                    "role": "user",
+                    "content": memory_extract_payload(
+                        query, answer, history, resolved_context=resolved_context
+                    ),
+                },
             ],
             [
-                {"role": "user", "content": _STRICT_JSON_PROMPT + "\n\n" + memory_extract_prompt(query, answer, history)},
+                {
+                    "role": "user",
+                    "content": _STRICT_JSON_PROMPT
+                    + "\n\n"
+                    + memory_extract_prompt(
+                        query, answer, history, resolved_context=resolved_context
+                    ),
+                },
             ],
         )
         backoff = (2.0, 6.0, 12.0)

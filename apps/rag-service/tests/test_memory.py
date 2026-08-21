@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 from src.application.mem.agent import MemoryAgent
 from src.application.mem.planner import RetrievalPlanner
@@ -15,6 +16,7 @@ from src.application.memory import (
     rank_memory,
 )
 from src.application.pipeline import QueryPipeline
+from src.config import settings
 from src.domain import MemoryFact, MemoryHit, QueryRequest
 from src.generation.prompts import build_system_prompt, memory_extract_prompt
 
@@ -172,6 +174,7 @@ class _RecordingConn:
         self.executes.append(sql)
 
     async def fetch(self, sql: str, *args) -> list:
+        self.executes.append(sql)
         return []
 
     async def fetchrow(self, sql: str, *args) -> None:
@@ -183,11 +186,12 @@ async def test_touch_strengthens_recalled_facts():
     at 1.0) so memories the user actually relies on become more durable."""
     conn = _RecordingConn()
     store = MemoryStore(pool=_FakePool(conn), embedder=None)
-    await store.touch([], ["11111111-1111-1111-1111-111111111111"])
+    await store.touch("11111111-1111-1111-1111-111111111111", [], ["11111111-1111-1111-1111-111111111111"])
     fact_sql = next(s for s in conn.executes if "memories" in s)
     assert "importance = LEAST(1.0, importance + $1::double precision)" in fact_sql
     assert "access_count = access_count + 1" in fact_sql
     assert "last_accessed_at = now()" in fact_sql
+    assert "AND user_id = $3::uuid" in fact_sql  # tenant isolation scoping
 
 
 async def test_consolidate_decays_then_forgets_unused_facts():
@@ -197,8 +201,10 @@ async def test_consolidate_decays_then_forgets_unused_facts():
     sql = "\n".join(conn.executes)
     assert "importance - $1::double precision" in sql  # forgetting-curve decay
     assert "importance < $2::double precision" in sql  # critical facts protected
-    assert "DELETE FROM memories WHERE importance < $1::double precision" in sql
+    # Lifecycle is on: faded memories are archived (soft delete), not hard-deleted.
+    assert "stage = 'archived'" in sql
     assert "DELETE FROM conversation_memory" in sql  # aged episodic memory purged
+    assert "stage = 'stale'" in sql  # unused confirmed facts age to stale
 
 
 class _MergeConn:
@@ -283,6 +289,37 @@ async def test_extract_facts_returns_empty_on_garbage():
     store = MemoryStore(pool=None, embedder=None)
     facts = await store._extract_facts(_FakeLLM("sure thing!"), "q", "a", [], None)
     assert facts == []
+
+
+async def test_extract_facts_drops_negative_absence_statements():
+    """"I don't have your wife's name" must never become a durable fact: its
+    similarity to later "what is my wife name?" queries starves the real fact
+    during recall."""
+    store = MemoryStore(pool=None, embedder=None)
+    llm = _FakeLLM(
+        '[{"type": "fact", "content": "The user has not mentioned his wife\'s name.", "importance": 0.8},'
+        '{"type": "fact", "content": "The sister\'s name has not been shared", "importance": 0.9},'
+        '{"type": "fact", "content": "I do not have the user\'s phone number", "importance": 0.7},'
+        '{"type": "fact", "content": "The user\'s wife is Chnadrim a Banerjee.", "importance": 0.85}]'
+    )
+    facts = await store._extract_facts(llm, "okay her name is chnadrima banerjee", "Got it.", [], None)
+    assert facts == [
+        {"type": "fact", "content": "The user's wife is Chnadrim a Banerjee.", "importance": 0.85}
+    ]
+
+
+async def test_extract_facts_drops_assistant_subject_facts():
+    """Facts about the assistant's own reply must never be stored: memory holds
+    what the USER typed, not what the model said in response."""
+    store = MemoryStore(pool=None, embedder=None)
+    llm = _FakeLLM(
+        '[{"type": "fact", "content": "The assistant has seen the name Sushmita Sadhu referenced earlier", "importance": 0.73},'
+        '{"type": "fact", "content": "The user has a sister named Sushmita Sadhu.", "importance": 0.95}]'
+    )
+    facts = await store._extract_facts(llm, "my sister name is sushmita sadhu", "Got it.", [], None)
+    assert facts == [
+        {"type": "fact", "content": "The user has a sister named Sushmita Sadhu.", "importance": 0.95}
+    ]
 
 
 async def test_extract_with_retry_parses_on_second_attempt():
@@ -410,7 +447,12 @@ async def test_upsert_fact_returns_inserted_and_merged_ids():
     ) == "11111111-1111-1111-1111-111111111111"
     # Ignore path (near-exact duplicate) returns the existing row's id.
     assert await store._upsert_fact(
-        _IdConn({"id": "22222222-2222-2222-2222-222222222222", "sim": 0.98}),
+        _IdConn({
+            "id": "22222222-2222-2222-2222-222222222222",
+            "sim": 0.98,
+            "stage": "confirmed",
+            "evidence_count": 3,
+        }),
         user_id,
         fact,
         [0.1, 0.2],
@@ -440,7 +482,7 @@ class _FakeGraph:
     async def upsert_memory(self, memory) -> None:
         self.nodes.append(memory)
 
-    async def link_related(self, from_id, to_id, rel_type, properties=None) -> None:
+    async def link_related(self, user_id, from_id, to_id, rel_type, properties=None) -> None:
         self.links.append((from_id, to_id, rel_type, properties or {}))
 
     async def find_related_by_content(self, user_id, content, *, top_k=3):
@@ -488,13 +530,14 @@ async def test_memory_agent_index_exchange_links_relationship_edges():
     ]
     agent = MemoryAgent(store=store, graph=graph, embedder=_FakeEmbedder())
 
-    await agent.index_exchange(
-        llm=_FakeLLM(""),
-        user_id="c356c566-80c7-4583-a1ed-3de1a1242491",
-        conversation_id=None,
-        query="I work at Acme",
-        answer="Noted.",
-    )
+    with mock.patch.object(settings, "neo4j_enabled", True):
+        await agent.index_exchange(
+            llm=_FakeLLM(""),
+            user_id="c356c566-80c7-4583-a1ed-3de1a1242491",
+            conversation_id=None,
+            query="I work at Acme",
+            answer="Noted.",
+        )
 
     assert graph.users == ["c356c566-80c7-4583-a1ed-3de1a1242491"]
     assert any(n.id == "33333333-3333-3333-3333-333333333333" for n in graph.nodes)
@@ -533,7 +576,7 @@ class _FakeRetrieveMemory:
     async def search_critical_facts(self, user_id, min_importance, top_k):
         return []
 
-    async def touch(self, memory_ids, fact_ids):
+    async def touch(self, user_id, memory_ids, fact_ids):
         pass
 
 
@@ -577,3 +620,31 @@ def test_build_system_prompt_renders_relationships_block():
 
     plain = build_system_prompt([], intent="general")
     assert "<relationships>\n" not in plain
+
+
+def test_planner_gates_critical_floor_on_personal_signal():
+    # A pure knowledge question gets NO forced critical facts.
+    plan = RetrievalPlanner.create_plan(intent="knowledge", query="explain quantum computing basics")
+    assert plan.include_critical is False
+
+    # A personal question ("my", "I") still gets the critical floor.
+    plan = RetrievalPlanner.create_plan(intent="knowledge", query="what do you know about my family?")
+    assert plan.include_critical is True
+
+    # needs_memory from the router forces the floor even without a pronoun.
+    plan = RetrievalPlanner.create_plan(intent="knowledge", needs_memory=True, query="remind me who the manager is")
+    assert plan.include_critical is True
+
+
+def test_planner_relationship_and_time_plans_also_gate_critical_floor():
+    plan = RetrievalPlanner.create_plan(intent="general", query="who is the CEO of OpenAI")
+    assert plan.include_critical is False
+
+    plan = RetrievalPlanner.create_plan(intent="general", query="how is my manager related to the CTO?")
+    assert plan.include_critical is True
+
+    plan = RetrievalPlanner.create_plan(intent="general", query="what happened last week in the news?")
+    assert plan.include_critical is False
+
+    plan = RetrievalPlanner.create_plan(intent="general", query="what did we discuss earlier about my project?")
+    assert plan.include_critical is True

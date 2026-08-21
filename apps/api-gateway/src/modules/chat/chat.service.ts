@@ -45,7 +45,7 @@ export class ChatService {
     // Resolve the API key for cloud providers: the user's own key wins,
     // otherwise fall back to the server default. Keys are read from Redis
     // (populated on save) so lookups stay fast and don't hit Postgres.
-    const CLOUD_PROVIDERS = ['openrouter', 'nvidia', 'openai', 'xai', 'gemini'];
+    const CLOUD_PROVIDERS = ['openrouter', 'nvidia', 'openai', 'xai', 'gemini', 'opencode'];
     const isCloud = CLOUD_PROVIDERS.includes(dto.provider);
     let apiKey: string | null = null;
     if (isCloud) {
@@ -64,7 +64,9 @@ export class ChatService {
               ? process.env.XAI_API_KEY
               : dto.provider === 'gemini'
                 ? process.env.GEMINI_API_KEY
-                : process.env.OPENROUTER_API_KEY;
+                : dto.provider === 'opencode'
+                  ? process.env.OPENCODE_API_KEY
+                  : process.env.OPENROUTER_API_KEY;
       if (!apiKey && !serverEnv) {
         const noKeyMsg =
           dto.provider === 'nvidia'
@@ -73,8 +75,10 @@ export class ChatService {
               ? 'No OpenAI key configured. Add one in Settings → API keys (recommended) or ask the administrator to set OPENAI_API_KEY.'
               : dto.provider === 'xai'
                 ? 'No xAI key configured. Add one in Settings → API keys (recommended) or ask the administrator to set XAI_API_KEY.'
-                : dto.provider === 'gemini'
-                  ? 'No Gemini key configured. Add one free in Settings → API keys (aistudio.google.com/apikey) or ask the administrator to set GEMINI_API_KEY.'
+              : dto.provider === 'gemini'
+                ? 'No Gemini key configured. Add one free in Settings → API keys (aistudio.google.com/apikey) or ask the administrator to set GEMINI_API_KEY.'
+                : dto.provider === 'opencode'
+                  ? 'No OpenCode key configured. Add one in Settings → API keys (opencode.ai/zen) or ask the administrator to set OPENCODE_API_KEY.'
                   : 'No OpenRouter key configured. Add one in Settings (recommended) or ask the administrator to set OPENROUTER_API_KEY.';
         write({ type: 'error', message: noKeyMsg });
         res.end();
@@ -154,6 +158,9 @@ export class ChatService {
               break;
             case 'error':
               write({ type: 'error', message: event.message });
+              break;
+            case 'notice':
+              write({ type: 'notice', message: event.message });
               break;
             case 'timings':
               timings = event.timings as Record<string, number>;

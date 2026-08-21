@@ -329,17 +329,17 @@ export function MobileBottomNav() {
   const [moreOpen, setMoreOpen] = useState(false);
 
   const items = [
-    { href: '/', label: 'Home', icon: <Home className="h-[22px] w-[22px]" /> },
-    { href: '/chat', label: 'Chat', icon: <MessageSquare className="h-[22px] w-[22px]" /> },
-    { href: '/documents', label: 'Knowledge', icon: <BookOpen className="h-[22px] w-[22px]" /> },
+    { href: '/', label: 'Home', icon: <Home className="h-5 w-5" /> },
+    { href: '/chat', label: 'Chat', icon: <MessageSquare className="h-5 w-5" /> },
+    { href: '/documents', label: 'Knowledge', icon: <BookOpen className="h-5 w-5" /> },
   ];
 
   return (
     <nav
       className="z-30 shrink-0 border-t border-surface-800 bg-bg-elevated/95 pb-safe backdrop-blur lg:hidden"
-      aria-label="Primary"
+      aria-label="Primary navigation"
     >
-      <div className="flex h-16 items-stretch">
+      <div className="flex h-14 items-center justify-around px-1 sm:h-16">
         {items.map((item) => {
           const active = isActive(pathname, item.href);
           return (
@@ -347,11 +347,18 @@ export function MobileBottomNav() {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors',
-                active ? 'text-primary-hover' : 'text-ink-muted hover:text-ink-primary',
+                'relative flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-all duration-150 active:scale-95',
+                active ? 'text-white font-semibold' : 'text-ink-muted hover:text-ink-primary',
               )}
             >
-              {item.icon}
+              <div
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded-xl transition-all',
+                  active ? 'bg-primary/20 text-primary-hover shadow-sm shadow-primary/20' : 'text-ink-muted',
+                )}
+              >
+                {item.icon}
+              </div>
               <span className="leading-none">{item.label}</span>
             </Link>
           );
@@ -361,10 +368,12 @@ export function MobileBottomNav() {
           <SheetTrigger asChild>
             <button
               type="button"
-              className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-ink-muted transition-colors hover:text-ink-primary"
+              className="relative flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-ink-muted transition-all duration-150 hover:text-ink-primary active:scale-95"
               aria-label="More options"
             >
-              <MoreHorizontal className="h-[22px] w-[22px]" />
+              <div className="flex h-7 w-7 items-center justify-center rounded-xl text-ink-muted">
+                <MoreHorizontal className="h-5 w-5" />
+              </div>
               <span className="leading-none">More</span>
             </button>
           </SheetTrigger>

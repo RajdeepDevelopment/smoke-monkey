@@ -70,6 +70,14 @@ const PROVIDERS: ProviderMeta[] = [
     getKeyUrl: 'https://aistudio.google.com/apikey',
   },
   {
+    id: 'opencode',
+    label: 'OpenCode Zen',
+    hint: 'Free OpenCode Zen models (DeepSeek V4 Flash, Nemotron 3 Ultra, MiMo V2.5, Big Pickle, Laguna S 2.1). Sign in at opencode.ai/zen',
+    placeholder: 'opencode zen key',
+    keyStart: '',
+    getKeyUrl: 'https://opencode.ai/zen',
+  },
+  {
     id: 'nvidia',
     label: 'NVIDIA NIM',
     hint: 'NVIDIA Nemotron models (chat, embedding, rerank). Get a key at build.nvidia.com',

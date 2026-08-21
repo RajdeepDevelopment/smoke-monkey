@@ -26,6 +26,7 @@ class Citation(BaseModel):
     page: int | None = None
     text: str
     score: float
+    url: str | None = None
 
 
 class QueryRequest(BaseModel):

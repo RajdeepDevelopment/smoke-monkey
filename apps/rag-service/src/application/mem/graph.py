@@ -9,14 +9,21 @@ the semantic hits to surface *connected* memories the query never mentioned.
 The driver is injectable so tests never need a live Neo4j instance. Every
 method is defensive: a down/absent graph degrades to a no-op instead of
 breaking the pipeline (memory must stay best-effort).
+
+Traversal safety (item 12): depth is clamped to ``memory_graph_max_depth``,
+every result is bounded by ``memory_graph_max_nodes``/``top_k``, and each
+query is wrapped in ``asyncio.wait_for`` so a slow/cyclical graph cannot blow
+the request deadline.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
 
 from src.application.mem.models import Memory
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +70,29 @@ def sanitize_rel_type(rel_type: str) -> str:
     if cleaned in _REL_TYPES or _SAFE_REL.match(cleaned):
         return cleaned
     return "RELATED_TO"
+
+
+async def _consume_bounded(result: Any, *, timeout_s: float, max_rows: int) -> list[dict[str, Any]]:
+    """Collect a Neo4j Result's records under a hard timeout + row cap.
+
+    A pathological graph (dense hub, long chain) is stopped at ``max_rows``
+    records; a slow server is stopped by the ``asyncio.wait_for`` deadline.
+    """
+    rows: list[dict[str, Any]] = []
+
+    async def _collect() -> list[dict[str, Any]]:
+        collected: list[dict[str, Any]] = []
+        async for record in result:
+            collected.append(dict(record))
+            if len(collected) >= max_rows:
+                break
+        return collected
+
+    try:
+        rows = await asyncio.wait_for(_collect(), timeout=timeout_s)
+    except Exception as exc:  # noqa: BLE001 - best-effort
+        logger.debug("graph query timed out or failed (%.1fs, %d rows): %s", timeout_s, len(rows), exc)
+    return rows
 
 
 class GraphMemoryStore:
@@ -149,14 +179,38 @@ class GraphMemoryStore:
         except Exception as exc:  # noqa: BLE001
             logger.debug("graph upsert_memory failed: %s", exc)
 
+    async def delete_memory(self, user_id: str, memory_id: str) -> None:
+        """Remove a memory node and all its edges (called from the outbox relay
+        when a memory is forgotten/expired/merged away)."""
+        if not self.enabled:
+            return
+        try:
+            async with self._driver.session() as session:
+                await session.run(
+                    """
+                    MATCH (u:User {id: $user_id})-[:HAS_MEMORY]->(m:Memory {id: $id})
+                    DETACH DELETE m
+                    """,
+                    user_id=user_id,
+                    id=memory_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("graph delete_memory failed: %s", exc)
+
     async def link_related(
         self,
+        user_id: str,
         from_id: str,
         to_id: str,
         rel_type: str = "RELATED_TO",
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """Create/refresh a typed edge between two memories (both must exist)."""
+        """Create/refresh a typed edge between two memories (both must exist).
+
+        Scoped to ``user_id`` (item 8): both endpoints must belong to the same
+        user's subgraph, so one user's edges can never reference another user's
+        nodes.
+        """
         if not self.enabled:
             return
         rel = sanitize_rel_type(rel_type)
@@ -164,10 +218,12 @@ class GraphMemoryStore:
             async with self._driver.session() as session:
                 await session.run(
                     f"""
-                    MATCH (a:Memory {{id: $from_id}}), (b:Memory {{id: $to_id}})
+                    MATCH (u:User {{id: $user_id}})-[:HAS_MEMORY]->(a:Memory {{id: $from_id}}),
+                          (u)-[:HAS_MEMORY]->(b:Memory {{id: $to_id}})
                     MERGE (a)-[r:{rel}]->(b)
                     SET r += $props
                     """,
+                    user_id=user_id,
                     from_id=from_id,
                     to_id=to_id,
                     props=properties or {},
@@ -182,15 +238,24 @@ class GraphMemoryStore:
         *,
         depth: int = 1,
         top_k: int = 6,
+        timeout_s: float | None = None,
+        max_depth: int | None = None,
     ) -> list[dict[str, Any]]:
         """Walk the graph around the seed memories and return related memories.
 
         Returns rows with ``id, content, type, importance, rel_type`` (the edge
         type that connected them). The graph is scoped to the user.
+
+        Traversal is bounded (item 12): ``depth`` is clamped to
+        ``memory_graph_max_depth``, results to ``memory_graph_max_nodes``, and
+        the query runs under ``memory_graph_query_timeout_s``.
         """
         if not self.enabled or not seed_ids:
             return []
-        depth = max(1, int(depth))
+        timeout_s = timeout_s or settings.memory_graph_query_timeout_s
+        max_depth = max_depth or settings.memory_graph_max_depth
+        depth = max(1, min(int(depth), max_depth))
+        cap = min(int(top_k), settings.memory_graph_max_nodes)
         try:
             async with self._driver.session() as session:
                 result = await session.run(
@@ -209,9 +274,11 @@ class GraphMemoryStore:
                     """,
                     user_id=user_id,
                     seed_ids=list(seed_ids),
-                    top_k=top_k,
+                    top_k=cap,
                 )
-                return [dict(record) async for record in result]
+                return await _consume_bounded(
+                    result, timeout_s=timeout_s, max_rows=cap
+                )
         except Exception as exc:  # noqa: BLE001 - graph is best-effort
             logger.debug("graph find_related_memories failed: %s", exc)
             return []
@@ -222,11 +289,14 @@ class GraphMemoryStore:
         content: str,
         *,
         top_k: int = 3,
+        timeout_s: float | None = None,
     ) -> list[dict[str, Any]]:
         """Find memories mentioning an entity (used to resolve relationship
         subjects/objects to existing memories)."""
         if not self.enabled or not content:
             return []
+        timeout_s = timeout_s or settings.memory_graph_query_timeout_s
+        cap = min(int(top_k), settings.memory_graph_max_nodes)
         try:
             async with self._driver.session() as session:
                 result = await session.run(
@@ -239,9 +309,11 @@ class GraphMemoryStore:
                     """,
                     user_id=user_id,
                     content=content,
-                    top_k=top_k,
+                    top_k=cap,
                 )
-                return [dict(record) async for record in result]
+                return await _consume_bounded(
+                    result, timeout_s=timeout_s, max_rows=cap
+                )
         except Exception as exc:  # noqa: BLE001
             logger.debug("graph find_related_by_content failed: %s", exc)
             return []

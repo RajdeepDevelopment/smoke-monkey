@@ -65,9 +65,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-bg text-ink-primary">
+    <div className="flex h-dvh w-full overflow-hidden bg-bg text-ink-primary">
       {!isSelfLayout && <Sidebar />}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         {!isSelfLayout && (
           <>
             {/* Desktop top bar */}
@@ -114,7 +114,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <MobileNav title={title} />
           </>
         )}
-        <main className="relative min-h-0 flex-1 overflow-hidden">{children}</main>
+        <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
         {!isSelfLayout && <MobileBottomNav />}
       </div>
     </div>

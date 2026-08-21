@@ -137,6 +137,16 @@ async def models() -> dict:
     providers.append(
         {"id": "omniroute", "label": "OmniRoute (free, keyless)", "models": or_models_free}
     )
+    oc_models = [m.strip() for m in settings.opencode_chat_models.split(",") if m.strip()] or [
+        settings.opencode_chat_model
+    ]
+    providers.append(
+        {
+            "id": "opencode",
+            "label": "OpenCode Zen (free)",
+            "models": oc_models,
+        }
+    )
 
     if settings.embed_provider == "openrouter":
         embedding = {
@@ -187,6 +197,7 @@ async def models() -> dict:
         + [chat_model_entry(m, "nvidia") for m in nv_models]
         + [chat_model_entry(settings.ollama_chat_model, "ollama")]
         + [{"id": m, "name": m, "provider": "omniroute", "isFree": True} for m in or_models_free]
+        + [{"id": m, "name": m, "provider": "opencode", "isFree": True} for m in oc_models]
     )
 
     # Recommended presets from the dynamic catalog (the "model picker" table).
@@ -348,9 +359,14 @@ async def retrieve(request: Request, body: RetrieveRequest) -> dict:
 
 @router.get("/metrics")
 async def metrics(request: Request) -> dict:
-    """Aggregated analytics summary from the Redis telemetry tail."""
+    """Aggregated analytics summary from the Redis telemetry tail, plus the
+    in-process scheduler/outbox/memory metrics registry (items 18/19)."""
     state = request.app.state
-    return await state.telemetry.summary()
+    summary = await state.telemetry.summary()
+    monitor = getattr(state, "metrics", None)
+    if monitor is not None:
+        summary["monitoring"] = monitor.snapshot()
+    return summary
 
 
 @router.post("/feedback")
